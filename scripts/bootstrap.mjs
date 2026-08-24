@@ -151,9 +151,57 @@ function readInstalledChromeVersion() {
   }
 }
 
+/* ------------------------------------------------------- kiem tra ma nguon */
+/**
+ * Doi chieu moi import tuong doi trong src\ voi file that tren dia.
+ *
+ * Ly do co buoc nay: mot ban cai thieu file van "cai dat thanh cong" roi moi vo
+ * ra luc chay that bang ERR_MODULE_NOT_FOUND. Da xay ra mot lan - .gitignore ghi
+ * "output/" khong neo goc nen git bo luon src\output\ ra khoi repo, may moi tai ve
+ * thieu 5 file ma installer khong he biet.
+ *
+ * @returns {string[]} danh sach "file: import" bi thieu
+ */
+function findBrokenImports(dir = path.join(ROOT, 'src'), out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      findBrokenImports(full, out);
+      continue;
+    }
+    if (!entry.name.endsWith('.mjs')) continue;
+
+    const source = fs.readFileSync(full, 'utf8');
+    // Bat ca "import ... from 'x'" tinh va "import('x')" dong.
+    const specifiers = [
+      ...source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g),
+      ...source.matchAll(/\bimport\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g),
+    ].map((m) => m[1]);
+
+    for (const specifier of new Set(specifiers)) {
+      if (!fs.existsSync(path.resolve(path.dirname(full), specifier))) {
+        out.push(`${path.relative(ROOT, full)} -> ${specifier}`);
+      }
+    }
+  }
+  return out;
+}
+
+function verifySources() {
+  const broken = findBrokenImports();
+  if (!broken.length) return;
+  for (const item of broken) say(`      [LOI] thieu file: ${item}`);
+  throw new Error(
+    `Ban cai dat thieu ${broken.length} file nguon. Chay lai INSTALL.bat; `
+    + 'neu van thieu thi repo dang thieu file - kiem tra .gitignore tren may dev.',
+  );
+}
+
 /* ---------------------------------------------------------------- buoc 3 */
 async function verifyExtensions() {
-  step(3, 'Kiem tra extension dong goi san...');
+  step(3, 'Kiem tra ma nguon va extension dong goi san...');
+  verifySources();
+  say('      [OK]  Ma nguon day du (moi import tuong doi deu tro toi file that).');
   const { loadConfig } = await import(new URL('../src/core/config.mjs', import.meta.url));
   const { verifyBundle } = await import(new URL('../src/browser/bundled-extensions.mjs', import.meta.url));
 

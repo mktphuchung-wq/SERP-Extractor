@@ -1,7 +1,12 @@
 node_modules/
-output/
-logs/
-config/local.yaml
+
+# Neo vao thu muc goc bang dau "/" o dau.
+# Khong co dau "/" thi git khop MOI thu muc trung ten o MOI cap - "output/" da tung
+# nuot ca src/output/ va lam ban cai dat tren may khac thieu 5 file nguon.
+/output/
+/logs/
+
+/config/local.yaml
 *.log
 *.tmp
 .DS_Store
@@ -10,8 +15,4 @@ Thumbs.db
 # Runtime tai ve luc cai dat (Node portable + Chrome for Testing).
 # Khong commit: nang ~230 MB va installer tu tai lai theo phien ban ghim
 # trong config/runtime.json.
-runtime/
-
-# NGUOC LAI, vendor/extensions/ PHAI duoc commit: do la 3 extension dong goi san
-# giup may moi khong phai vao Chrome Web Store cai tay.
-!vendor/
+/runtime/

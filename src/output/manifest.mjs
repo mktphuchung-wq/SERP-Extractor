@@ -1,0 +1,65 @@
+/**
+ * Run manifest ky thuat (dac ta muc 12).
+ * Luu trong logs\<run_id>\run-manifest.json, KHONG luu vao thu muc ket qua.
+ * Khong ghi cookie/header/password/noi dung profile.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+export function sha256(text) {
+  return crypto.createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex');
+}
+
+/**
+ * @param {object} data
+ * @returns {object}
+ */
+export function buildManifest(data) {
+  return {
+    run_id: data.runId,
+    keyword: data.keyword,
+    prompt_sha256: sha256(data.prompt),
+    market: {
+      country: data.config.search.country,
+      language: data.config.search.language,
+      domain: data.config.search.domain,
+    },
+    started_at: data.startedAt,
+    completed_at: data.completedAt,
+    status: data.status,
+    sources: data.sources,
+    counts: data.counts,
+    selector_versions: data.selectorVersions,
+    files: data.files,
+    output_dir: data.outputDir,
+    folder_base: data.folderBase ?? null,
+    warnings: data.warnings ?? [],
+    severity: data.severity ?? null,
+    errors: data.errors ?? [],
+    tool: {
+      name: 'auto-serp-research',
+      node: process.version,
+      chrome: data.chromeVersion ?? null,
+      extensions: data.extensions ?? {},
+    },
+  };
+}
+
+export function writeManifest(runDir, manifest) {
+  fs.mkdirSync(runDir, { recursive: true });
+  const target = path.join(runDir, 'run-manifest.json');
+  fs.writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  return target;
+}
+
+/** Lay selector_version cua tung block de theo doi UI drift. */
+export function collectSelectorVersions(selectors) {
+  const out = {};
+  for (const [block, value] of Object.entries(selectors ?? {})) {
+    if (value && typeof value === 'object' && value.selector_version) {
+      out[block] = value.selector_version;
+    }
+  }
+  return out;
+}
