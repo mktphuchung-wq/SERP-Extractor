@@ -16,6 +16,7 @@ echo     - Node.js portable       -^> runtime\node\
 echo     - Chrome for Testing     -^> runtime\chrome\
 echo     - Package Node           -^> node_modules\
 echo.
+echo   May trang cung chay duoc: KHONG can cai truoc Git, Node hay Chrome.
 echo   3 extension da nam san trong vendor\extensions\ - khong phai cai gi.
 echo.
 

@@ -29,33 +29,39 @@ Mỗi lần chạy tạo đúng **1 file Markdown + 2 file CSV** trong một th�
 
 ### Cài trên máy mới bằng một dòng lệnh
 
-Mở PowerShell rồi dán **một dòng**:
+Máy trắng — **chưa cài Git, chưa cài Node, chưa cài Chrome** — mở PowerShell rồi dán **một dòng**:
 
 ```powershell
-$env:SERP_TOKEN='<github token>'; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 ```
 
-Nếu máy đã cài Git và đã đăng nhập GitHub thì bỏ được token:
+Không phải cài trước bất cứ thứ gì. Installer chỉ dùng PowerShell và `tar` — cả hai có sẵn trong
+Windows 10/11.
+
+Nếu repo chuyển sang private thì thêm token:
 
 ```powershell
-irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
+$env:SERP_TOKEN='<github token>'; Set-ExecutionPolicy Bypass -Scope Process -Force; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 ```
 
-Nếu đã có sẵn thư mục tool (copy qua USB, ổ mạng, hoặc `git clone` tay) thì double-click **`INSTALL.bat`**.
+Đã có sẵn thư mục tool (copy qua USB, ổ mạng) thì double-click **`INSTALL.bat`**.
 
 Installer tự làm hết, không hỏi gì:
 
-| Bước | Việc |
-| --- | --- |
-| 1 | Tải mã nguồn về `%USERPROFILE%\SERP-Extractor` (đổi được bằng `$env:SERP_DIR`) |
-| 2 | Tải **Node.js portable** vào `runtime\node\` — đối chiếu SHA256 với `SHASUMS256.txt` của nodejs.org |
-| 3 | `npm install` |
-| 4 | Tải **Chrome for Testing** vào `runtime\chrome\` (~200 MB) |
-| 5 | Kiểm tra 3 extension trong `vendor\extensions\` sinh đúng extension ID |
-| 6 | Tạo lối tắt trên Desktop |
+| Bước | Việc | Cần cài trước gì không |
+| --- | --- | --- |
+| 1 | Tải mã nguồn về `%USERPROFILE%\SERP-Extractor` (đổi bằng `$env:SERP_DIR`) | Không — tải ZIP bằng PowerShell |
+| 2 | Tải **Node.js portable** vào `runtime\node\` — đối chiếu SHA256 với `SHASUMS256.txt` của nodejs.org | Không |
+| 3 | `npm install` bằng npm đi kèm bản Node vừa tải | Không |
+| 4 | Tải **Chrome for Testing** vào `runtime\chrome\` (~200 MB) | Không |
+| 5 | Kiểm tra mã nguồn đủ file + 3 extension sinh đúng extension ID | Không |
+| 6 | Tạo lối tắt trên Desktop | Không |
 
-Máy đích **không cần cài sẵn Node.js, không cần cài sẵn Chrome, không phải vào Chrome Web Store**.
-Chỉ cần Windows 10/11 và mạng lúc cài.
+Tổng tải về ~230 MB, chiếm ~560 MB trên đĩa. Chỉ tải một lần.
+
+**Về Git:** không bắt buộc. Máy nào *có sẵn* Git thì installer dùng `git clone` — cập nhật sau này
+chỉ tốn vài KB qua `git pull`. Máy không có Git thì tải ZIP (~1,5 MB) và cập nhật cũng bằng ZIP.
+Cả hai đường đều cho ra kết quả giống hệt nhau.
 
 ### Việc duy nhất phải làm bằng tay (một lần trên mỗi máy)
 
@@ -113,7 +119,16 @@ Hai chi tiết kỹ thuật quan trọng đằng sau:
 
 ### Cập nhật lên máy đã cài
 
-Chạy lại `INSTALL.bat`: nó `git pull`, cài phần còn thiếu, và bỏ qua những gì đã có.
+Chạy lại `INSTALL.bat` (hoặc dán lại dòng lệnh cài đặt). Nó tự chọn đường phù hợp:
+
+| Máy cài bằng | Cách cập nhật | Tải về |
+| --- | --- | --- |
+| `git clone` (máy có Git) | `git pull --ff-only` | vài KB |
+| ZIP (máy không có Git) | Tải lại ZIP, thay `src/ scripts/ tools/ config/ vendor/ tests/` | ~1,5 MB |
+
+Cả hai đường đều **không đụng** tới `runtime/`, `node_modules/`, `output/`, `logs/` và
+`config/local.yaml` — cấu hình riêng và dữ liệu của bạn được giữ nguyên. Đường ZIP xóa rồi chép lại
+các thư mục mã nguồn nên file đã bị gỡ trên repo không còn sót lại.
 
 > **Về quyền riêng tư:** tool dùng một profile Chrome **riêng**, không đọc, không sao chép cookie
 > hay lịch sử từ profile Chrome cá nhân của bạn. Cổng debug chỉ mở trên `127.0.0.1`.

@@ -2,14 +2,20 @@
 #  AUTO SERP RESEARCH COLLECTOR - INSTALLER MOT DONG LENH
 # =============================================================================
 #
-#  Cai dat tren may moi:
+#  Cai tren MAY TRANG (chua co Git, chua co Node) - dan mot dong vao PowerShell:
 #
-#    $env:SERP_TOKEN='<github token>'; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} `
-#      https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
+#    Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 #
-#  Hoac neu may da co Git va da dang nhap GitHub:
+#  Khong can cai truoc bat cu thu gi. Installer tu lo:
+#    - Ma nguon : tai ZIP bang PowerShell co san cua Windows (khong can Git).
+#                 May nao co Git san thi clone, vi sau nay "git pull" re hon.
+#    - Node.js  : ban portable -> runtime\node\   (doi chieu SHA256)
+#    - Chrome   : Chrome for Testing -> runtime\chrome\
+#    - Extension: da nam san trong vendor\extensions\
 #
-#    irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
+#  Repo private thi them token:
+#
+#    $env:SERP_TOKEN='<github token>'; Set-ExecutionPolicy Bypass -Scope Process -Force; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 #
 #  Hoac chay tu ban da tai ve san (offline / USB):
 #
@@ -62,57 +68,128 @@ function Resolve-InstallDir {
 # -----------------------------------------------------------------------------
 # 2. Lay ma nguon
 # -----------------------------------------------------------------------------
-function Get-Source($dir) {
-  if (Test-Path (Join-Path $dir 'package.json')) {
-    Write-Ok "Da co ma nguon tai $dir"
-    if ((Test-Path (Join-Path $dir '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
-      Write-Step 'Cap nhat tu GitHub (git pull)...'
-      Push-Location $dir
-      try { git pull --ff-only 2>&1 | Out-Null; Write-Ok 'Da cap nhat.' }
-      catch { Write-Warn2 'Khong pull duoc - dung ban dang co.' }
-      finally { Pop-Location }
+# Thu muc do repo quan ly. Cap nhat bang ZIP se XOA roi chep lai nhung thu muc nay
+# de file da bi go tren repo khong con sot lai. Moi thu khac (runtime, node_modules,
+# output, logs, config\local.yaml) khong dong toi.
+$SourceDirs = @('src', 'scripts', 'tools', 'config', 'vendor', 'tests')
+
+function Expand-Zip($zipPath, $destDir) {
+  New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+  # tar.exe co san tu Windows 10 1803 va nhanh hon Expand-Archive nhieu lan.
+  $tar = Get-Command tar -ErrorAction SilentlyContinue
+  if ($tar) {
+    & tar -xf $zipPath -C $destDir 2>$null
+    if ($LASTEXITCODE -eq 0) { return }
+  }
+  Expand-Archive -LiteralPath $zipPath -DestinationPath $destDir -Force
+}
+
+# Tai ma nguon dang ZIP. Day la duong KHONG CAN GIT: chi dung Invoke-WebRequest va
+# tar/Expand-Archive - ca hai deu co san tren Windows 10/11 sach.
+function Get-SourceZip($dir, [switch]$IsUpdate) {
+  $zip = Join-Path $env:TEMP "serp-extractor-$Branch-$([Guid]::NewGuid().ToString('N')).zip"
+  $tmp = "$zip.dir"
+
+  if ($Token) {
+    # Repo private: bat buoc di qua API kem token.
+    Write-Step "Tai ma nguon (ZIP qua GitHub API, repo $Repo, nhanh $Branch)..."
+    Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/zipball/$Branch" `
+      -Headers @{ Authorization = "Bearer $Token"; 'User-Agent' = 'serp-installer' } `
+      -OutFile $zip -UseBasicParsing
+  } else {
+    # Repo public: khong can token, khong can Git, khong can gi ca.
+    Write-Step "Tai ma nguon (ZIP, repo $Repo, nhanh $Branch)..."
+    try {
+      Invoke-WebRequest -Uri "https://codeload.github.com/$Repo/zip/refs/heads/$Branch" `
+        -OutFile $zip -UseBasicParsing
+    } catch {
+      throw @"
+Khong tai duoc ma nguon tu https://github.com/$Repo (nhanh $Branch).
+Neu repo la private, dat token truoc roi chay lai:
+  `$env:SERP_TOKEN='<github token>'
+Chi tiet: $($_.Exception.Message)
+"@
     }
-    return
   }
 
+  try {
+    Expand-Zip $zip $tmp
+    # GitHub goi toan bo repo trong mot thu muc con dang OWNER-REPO-<ref>.
+    $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
+    if (-not $inner) { throw 'File ZIP tai ve khong dung dinh dang cua GitHub.' }
+
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+    if ($IsUpdate) {
+      # Giu lai cau hinh rieng cua nguoi dung truoc khi thay thu muc config.
+      $localCfg = Join-Path $dir 'config\local.yaml'
+      $keepCfg = if (Test-Path $localCfg) { Get-Content $localCfg -Raw } else { $null }
+
+      foreach ($sub in $SourceDirs) {
+        $target = Join-Path $dir $sub
+        if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+      }
+      Copy-Item (Join-Path $inner.FullName '*') $dir -Recurse -Force
+
+      if ($null -ne $keepCfg) { Set-Content -LiteralPath $localCfg -Value $keepCfg -Encoding UTF8 }
+      Write-Ok "Da cap nhat ma nguon tai $dir"
+    } else {
+      Copy-Item (Join-Path $inner.FullName '*') $dir -Recurse -Force
+      Write-Ok "Da tai ma nguon ve $dir"
+    }
+  } finally {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $zip -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Get-Source($dir) {
   if ($Repo -like '*<OWNER>*') {
     throw "Chua cau hinh repo. Sua bien `$DefaultRepo trong install.ps1, hoac dat `$env:SERP_REPO='owner/repo'."
   }
 
+  $hasSource = Test-Path (Join-Path $dir 'package.json')
+  $isGitRepo = Test-Path (Join-Path $dir '.git')
   $git = Get-Command git -ErrorAction SilentlyContinue
+
+  # --- Da co ban cai san: cap nhat tai cho ---------------------------------
+  if ($hasSource) {
+    Write-Ok "Da co ma nguon tai $dir"
+    if ($isGitRepo -and $git) {
+      Write-Step 'Cap nhat tu GitHub (git pull)...'
+      Push-Location $dir
+      try {
+        git pull --ff-only 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Ok 'Da cap nhat.' } else { Write-Warn2 'Khong pull duoc - dung ban dang co.' }
+      } finally { Pop-Location }
+      return
+    }
+    if ($isGitRepo) {
+      Write-Warn2 'Thu muc la git repo nhung may khong co Git - bo qua buoc cap nhat.'
+      return
+    }
+    # Cai lan dau bang ZIP thi cap nhat cung bang ZIP (khoang 1,5 MB).
+    Get-SourceZip $dir -IsUpdate
+    return
+  }
+
+  # --- Cai moi -------------------------------------------------------------
+  # Co Git thi clone, vi sau nay cap nhat bang git pull re hon (vai KB).
   if ($git) {
     Write-Step "git clone https://github.com/$Repo (nhanh $Branch)..."
     $url = "https://github.com/$Repo.git"
     if ($Token) { $url = "https://x-access-token:$Token@github.com/$Repo.git" }
     git clone --depth 1 --branch $Branch $url $dir
-    if ($LASTEXITCODE -ne 0) { throw "git clone that bai. Kiem tra quyen truy cap repo $Repo." }
-    Write-Ok "Da tai ma nguon ve $dir"
-    return
+    if ($LASTEXITCODE -eq 0) {
+      Write-Ok "Da tai ma nguon ve $dir"
+      return
+    }
+    Write-Warn2 'git clone that bai - chuyen sang tai ZIP.'
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
   }
 
-  if (-not $Token) {
-    throw @"
-May nay chua cai Git va cung khong co token.
-Chon mot trong hai:
-  - Cai Git for Windows: https://git-scm.com/download/win  roi chay lai lenh nay
-  - Hoac dat token truoc:  `$env:SERP_TOKEN='<github token>'
-"@
-  }
-
-  Write-Step "Tai ZIP tu GitHub API (repo $Repo, nhanh $Branch)..."
-  $zip = Join-Path $env:TEMP "serp-extractor-$Branch.zip"
-  Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/zipball/$Branch" `
-    -Headers @{ Authorization = "Bearer $Token"; 'User-Agent' = 'serp-installer' } `
-    -OutFile $zip
-  $tmp = Join-Path $env:TEMP "serp-extractor-unzip-$([Guid]::NewGuid().ToString('N'))"
-  Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
-  # GitHub goi zip trong mot thu muc con dang OWNER-REPO-<sha>
-  $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
-  New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  Copy-Item (Join-Path $inner.FullName '*') $dir -Recurse -Force
-  Remove-Item $tmp -Recurse -Force
-  Remove-Item $zip -Force
-  Write-Ok "Da tai ma nguon ve $dir"
+  # May trang chua cai Git: van chay duoc, chi can PowerShell co san cua Windows.
+  Get-SourceZip $dir
 }
 
 # -----------------------------------------------------------------------------
@@ -151,7 +228,7 @@ function Install-PortableNode($dir) {
   Write-Ok 'SHA256 khop.'
 
   $tmp = Join-Path $env:TEMP "node-unzip-$([Guid]::NewGuid().ToString('N'))"
-  Expand-Archive -LiteralPath $zipPath -DestinationPath $tmp -Force
+  Expand-Zip $zipPath $tmp
   New-Item -ItemType Directory -Force -Path (Split-Path $nodeDir) | Out-Null
   Move-Item (Join-Path $tmp $pkg) $nodeDir
   Remove-Item $tmp -Recurse -Force
