@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-08-24T02:46:55.608Z",
+  "source_profile": "C:\\Users\\user\\AppData\\Local\\AutoSerpTool\\chrome-profile",
+  "extensions": {
+    "ahrefs": {
+      "id": "hgmoccdbjhknikckedaaebbpdeebhiei",
+      "name": "Ahrefs SEO Toolbar",
+      "version": "3.2.10_0",
+      "manifest_version": 3,
+      "dir": "extensions/ahrefs",
+      "files": 292,
+      "bytes": 3747104,
+      "key_sha256": "48a41444348cde3d"
+    },
+    "serp_export": {
+      "id": "oijhomofkbpbjldkdhkkjkcdokdigeie",
+      "name": "SEO SERP Extraction Tool",
+      "version": "2_0",
+      "manifest_version": 3,
+      "dir": "extensions/serp_export",
+      "files": 10,
+      "bytes": 53814,
+      "key_sha256": "598cfb104281a505"
+    },
+    "suggestions": {
+      "id": "lbgklcfhclfdeapdabmcphhkomkofbga",
+      "name": "Google Search Suggestion Extractor",
+      "version": "1.0_0",
+      "manifest_version": 3,
+      "dir": "extensions/suggestions",
+      "files": 7,
+      "bytes": 23340,
+      "key_sha256": "cf0e7ebcd58e36ab"
+    }
+  }
+}

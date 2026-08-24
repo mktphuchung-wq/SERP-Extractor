@@ -1,0 +1,22 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "icons/icon128.png",
+         "16": "icons/icon24.png",
+         "48": "icons/icon48.png"
+      }
+   },
+   "background": {
+      "service_worker": "background.js"
+   },
+   "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self';"
+   },
+   "description": "The SEO SERP Extraction Tool is a powerful and easy-to-use extension to quickly extract URL in search results.",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsag3T3N19Rb9SBT78xpQ6G1JhitQ6/F8UpDNF/9blDs3w8MfFaIwwLC2WZfXbVAtmuanZXlFnF0VKjPxkJqwDrnHsQ4eviZyjCCVfH0hX97p6OP97shNhC2ROtG2hZFq9KvRqtFDseqxE5sKjs4W5L+iXKI6hipxcIizKi7299JnQcoCs00gMqb3lIrRfWvnR5DFF+M1MN51L90NoiLOMOZ/MFmek3mIaxPUL9KpIHaAKPeWPw//QmiEAqoAWK3PxHnt2un374KpdbyO8AxNWk/rgk42JLVfzG/SIxv4Q8Pd3vKawqW7hgakdweeB1PlZu0DAlGZmPS7xHF8QZufYQIDAQAB",
+   "manifest_version": 3,
+   "name": "SEO SERP Extraction Tool",
+   "permissions": [ "activeTab", "scripting" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "2"
+}

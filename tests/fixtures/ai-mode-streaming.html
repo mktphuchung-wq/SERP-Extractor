@@ -1,0 +1,56 @@
+<!-- Fixture: AI Mode co o nhap prompt; sau khi submit thi cau tra loi duoc "stream"
+     dan ra kem indicator dang tao noi dung. Dung de test state machine AI Mode that. -->
+<html>
+<body>
+  <div id="search">
+    <div id="rso">
+      <div data-attrid="AIOverviewBlock">
+        <div role="heading" aria-level="2">AI Overview</div>
+        <div class="ai-body"><p>Short AI Overview text before expanding.</p></div>
+        <div role="button" aria-expanded="false" id="showmore">Show more</div>
+        <div class="ai-follow-up">
+          <textarea aria-label="Ask anything" id="promptbox"></textarea>
+          <button aria-label="Send" id="send">Send</button>
+        </div>
+      </div>
+      <div id="responses"></div>
+    </div>
+  </div>
+
+  <script>
+    var CHUNKS = [
+      '<h3>Main similarities</h3>',
+      '<p>Both peoples share <strong>Austronesian</strong> ancestry.</p>',
+      '<ul><li>Related language families</li><li>Island geography</li></ul>',
+      '<p>Read <a href="https://source.example.com/study">this study</a>.</p>'
+    ];
+
+    document.getElementById('showmore').addEventListener('click', function () {
+      this.setAttribute('aria-expanded', 'true');
+      document.querySelector('.ai-body').innerHTML += '<p>Expanded extra overview paragraph.</p>';
+    });
+
+    document.getElementById('send').addEventListener('click', function () {
+      var host = document.getElementById('responses');
+      var block = document.createElement('div');
+      block.setAttribute('data-rp-response', '1');
+      host.appendChild(block);
+
+      var spinner = document.createElement('div');
+      spinner.setAttribute('role', 'progressbar');
+      host.appendChild(spinner);
+
+      var i = 0;
+      var timer = setInterval(function () {
+        if (i >= CHUNKS.length) {
+          clearInterval(timer);
+          spinner.remove();
+          return;
+        }
+        block.innerHTML += CHUNKS[i];
+        i += 1;
+      }, 200);
+    });
+  </script>
+</body>
+</html>

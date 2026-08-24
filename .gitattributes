@@ -1,0 +1,7 @@
+# Batch file phai la CRLF: cmd.exe xu ly sai "goto :label" khi file chi co LF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Extension dong goi san la ban nhi phan cua ben thu ba - khong duoc dong hoa
+# line ending, neu khong chu ky/noi dung se lech so voi ban goc.
+vendor/extensions/** -text -diff

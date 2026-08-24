@@ -1,0 +1,17 @@
+node_modules/
+output/
+logs/
+config/local.yaml
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Runtime tai ve luc cai dat (Node portable + Chrome for Testing).
+# Khong commit: nang ~230 MB va installer tu tai lai theo phien ban ghim
+# trong config/runtime.json.
+runtime/
+
+# NGUOC LAI, vendor/extensions/ PHAI duoc commit: do la 3 extension dong goi san
+# giup may moi khong phai vao Chrome Web Store cai tay.
+!vendor/

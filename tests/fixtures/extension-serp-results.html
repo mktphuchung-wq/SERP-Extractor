@@ -1,0 +1,30 @@
+<!-- Fixture: trang ket qua cua "SEO SERP Extraction Tool" voi nut Export CSV.
+     Nut Export tao ra mot file CSV bang Blob download - dung de test bat download that. -->
+<html>
+<body>
+  <h1>SERP Extraction Result</h1>
+  <button id="extract">Extract</button>
+  <table>
+    <tr><th>Position</th><th>Title</th><th>URL</th></tr>
+    <tr><td>1</td><td>Featured Result Title</td><td>https://featured.example.com/answer</td></tr>
+    <tr><td>2</td><td>First Organic Result</td><td>https://www.first.com/page</td></tr>
+    <tr><td>3</td><td>Second Organic Result</td><td>https://second.com/article</td></tr>
+  </table>
+  <button id="export">Export CSV</button>
+
+  <script>
+    document.getElementById('export').addEventListener('click', function () {
+      var csv = 'Position,Title,URL\n'
+        + '1,"Featured Result Title",https://featured.example.com/answer\n'
+        + '2,"First Organic Result, with comma",https://www.first.com/page\n'
+        + '3,"Second Organic Result",https://second.com/article\n';
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'serp-export.csv';
+      document.body.appendChild(link);
+      link.click();
+    });
+  </script>
+</body>
+</html>

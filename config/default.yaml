@@ -1,0 +1,125 @@
+# Auto SERP Research Collector - cau hinh mac dinh
+# KHONG luu password / cookie / token trong file nay.
+
+browser:
+  # auto    : uu tien Chrome for Testing trong runtime\chrome, thieu thi dung Chrome he thong
+  # bundled : bat buoc Chrome for Testing (bao loi neu chua tai) - dung khi muon chac chan
+  #           3 extension trong vendor\extensions duoc nap
+  # system  : bat buoc Chrome he thong (LUU Y: ban chinh thuc bo qua --load-extension
+  #           nen phai tu cai extension vao profile automation)
+  # hoac mot duong dan tuyet doi toi chrome.exe
+  chrome_path: auto
+  user_data_dir: '%LOCALAPPDATA%\AutoSerpTool\chrome-profile'
+  remote_debugging_port: 9222
+  # Xac minh Chrome dang attach dung la profile automation (khong phai profile ca nhan).
+  # Chi tat khi ban thuc su hieu minh dang lam gi.
+  verify_profile: true
+  headless: false                        # AI Mode / extension can UI that
+  launch_timeout_ms: 45000
+  viewport:
+    width: 1440
+    height: 1000
+
+search:
+  scheme: 'https'                       # chi doi khi test cuc bo
+  domain: 'www.google.com'
+  country: 'us'
+  language: 'en'
+  personalization: false                 # false -> pws=0
+  results_per_page: 10
+  pages: 2
+  min_delay_ms: 1800
+  max_delay_ms: 3500
+  page_timeout_ms: 45000
+
+ai:
+  open_overview_first: true
+  direct_ai_mode_fallback: true
+  overview_timeout_ms: 15000
+  response_timeout_ms: 120000
+  stable_ms: 2500
+  min_response_chars: 40
+  poll_interval_ms: 750
+  prompt_template: 'Analyze the search topic "{{keyword}}" and explain the main intent, key subtopics, and important distinctions.'
+
+extractors:
+  keyword_ideas_source: 'ahrefs'
+  allow_keyword_ideas_fallback: false
+  paa_capture_mode: 'questions_only'     # questions_only | questions_and_answers
+  suggestion_source: 'extension_then_dom'
+  # Loai goi y lay tu lich su tim kiem cua tai khoan (dong co nut Delete).
+  # Do la du lieu ca nhan, khong phai Google Search Suggestion, va nguoc voi pws=0.
+  exclude_personalized_suggestions: true
+  serp_source: 'extension_then_dom'
+  normalize_serp_csv: false
+  # v2.0: bat mac dinh - dropdown DOM khong phai luc nao cung mo duoc,
+  # endpoint nay la nguon du phong re va on dinh.
+  allow_autocomplete_endpoint: true
+  ahrefs_timeout_ms: 15000
+  extension_timeout_ms: 20000
+  download_timeout_ms: 30000
+
+output:
+  root: './output'
+  logs_root: './logs'
+  encoding: 'utf8'
+  on_conflict: 'timestamp'               # timestamp | fail | overwrite
+  max_filename_length: 120
+
+recovery:
+  retries_per_step: 2
+  backoff_ms: [2000, 5000]
+  save_screenshot_on_error: true
+  save_trace_on_error: true
+  pause_for_manual_login: true
+  pause_for_manual_captcha: true
+  manual_pause_timeout_ms: 600000
+
+notifications:
+  console: true
+  sound: true
+  windows_toast: true
+  open_result: true                      # mo file .md bang Notepad ngay khi chay xong
+  open_result_with: 'notepad.exe'
+  open_batch_summary: true               # khi chay nhieu tu khoa: mo file tong ket
+
+performance:
+  # Cac buoc KHONG phu thuoc nhau chay dong thoi tren cac tab rieng.
+  # Nhung viec phu thuoc tab dang active (popup extension, clipboard) van
+  # duoc bao ve bang khoa nen khong lay nham du lieu giua cac tab.
+  parallel_steps: true
+  stagger_ms: 1200                       # gian cach mo tab de tranh mo don Google cung luc
+  # Nhieu tu khoa (ngan cach bang ";") LUON chay tuan tu tren cung mot profile
+  # vi Google va extension phu thuoc trang thai tab/profile (dac ta muc 17).
+  keyword_concurrency: 1
+
+capture:
+  enabled: false                         # bat bang --capture-dom
+  blocks: []                             # rong = tat ca block co selector
+  include_shadow: true                   # serialize ca noi dung shadow root
+  max_html_bytes: 4000000
+
+logging:
+  # Bat len thi SELECTOR_DRIFT tu INFO thanh WARN (dung khi muon CI gat).
+  strict_selectors: false
+  selector_stale_days: 90
+
+privacy:
+  redact_logs: true
+  # Chi kiem tra TEN THU MUC extension trong Chrome ca nhan de canh bao
+  # "da cai nham profile". Khong doc cookie/lich su, khong dung profile do de chay.
+  hint_personal_chrome: true
+
+extensions:
+  ahrefs:
+    id: 'hgmoccdbjhknikckedaaebbpdeebhiei'
+    name: 'Ahrefs SEO Toolbar'
+    webstore: 'https://chromewebstore.google.com/detail/ahrefs-seo-toolbar/hgmoccdbjhknikckedaaebbpdeebhiei'
+  serp_export:
+    id: 'oijhomofkbpbjldkdhkkjkcdokdigeie'
+    name: 'SEO SERP Extraction Tool'
+    webstore: 'https://chromewebstore.google.com/detail/seo-serp-extraction-tool/oijhomofkbpbjldkdhkkjkcdokdigeie'
+  suggestions:
+    id: 'lbgklcfhclfdeapdabmcphhkomkofbga'
+    name: 'Google Search Suggestion Extractor'
+    webstore: 'https://chromewebstore.google.com/detail/google-search-suggestion/lbgklcfhclfdeapdabmcphhkomkofbga'

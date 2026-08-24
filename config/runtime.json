@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Phien ban runtime GHIM cho moi may. Installer tai dung nhung ban nay nen may nao",
+    "cung chay tren cung mot to hop Node + Chrome -> loi tren may nay tai lai duoc tren may kia.",
+    "Muon nang cap: chay 'node scripts/bootstrap.mjs --update-runtime' roi commit file nay."
+  ],
+  "node": {
+    "version": "24.19.0",
+    "lts": "Krypton"
+  },
+  "chrome_for_testing": {
+    "version": "152.0.7977.54",
+    "channel": "Stable",
+    "platform": "win64"
+  }
+}

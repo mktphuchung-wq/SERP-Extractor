@@ -1,0 +1,286 @@
+# Selector registry - tach khoi code de cap nhat khi Google/extension doi UI.
+# Thu tu uu tien theo muc 7 cua dac ta:
+#   1) role + accessible name  2) text anchor  3) stable attribute
+#   4) structural fingerprint  5) css selector versioned (cuoi cung)
+# Moi block co selector_version rieng, duoc ghi vao run.log.
+# type: role | text | css | text_container
+
+google_consent:
+  selector_version: '2026-08-21.1'
+  detect_url:
+    - 'consent.google.com'
+    - '/consent?'
+  accept_buttons:
+    - { type: role, role: button, name: '(?i)^(accept all|i agree|agree to all)$' }
+    - { type: role, role: button, name: '(?i)^(reject all|reject non-essential)$' }
+    - { type: text, text: '(?i)^(accept all|i agree|reject all)$' }
+    - { type: css, css: "form[action*='consent'] button" }
+
+google_block_state:
+  selector_version: '2026-08-21.1'
+  captcha_url_markers:
+    - '/sorry/'
+    - 'ipv4.google.com/sorry'
+  captcha_text_markers:
+    - '(?i)unusual traffic'
+    - "(?i)i'?m not a robot"
+    - '(?i)our systems have detected'
+    - '(?i)verify (it.s )?you'
+  login_url_markers:
+    - 'accounts.google.com/ServiceLogin'
+    - 'accounts.google.com/v3/signin'
+  login_text_markers:
+    - '(?i)sign in to continue'
+    - '(?i)to continue, google will share'
+
+google_results:
+  selector_version: '2026-08-21.1'
+  main_container:
+    - { type: css, css: '#rso' }
+    - { type: css, css: '#search' }
+    - { type: css, css: 'div[data-async-context]' }
+  ready_markers:
+    - { type: css, css: '#search a h3' }
+    - { type: css, css: '#rso' }
+    - { type: css, css: '#botstuff' }
+
+ai_overview:
+  selector_version: '2026-08-21.1'
+  probe_text: '(?i)^ai overview$'
+  container:
+    - { type: css, css: "[data-attrid*='AIOverview' i]" }
+    - { type: css, css: "div[data-subtree='aiov']" }
+    - { type: text_container, text: '(?i)^ai overview$', up: 6 }
+  show_more:
+    - { type: role, role: button, name: '(?i)^show more$' }
+    - { type: text, text: '(?i)^show more$' }
+    - { type: css, css: "[aria-expanded='false'][role='button']" }
+  ai_mode_entry:
+    - { type: role, role: link, name: '(?i)^ai mode$' }
+    - { type: role, role: tab, name: '(?i)^ai mode$' }
+    - { type: text, text: '(?i)^ai mode$' }
+    - { type: css, css: "a[href*='udm=50']" }
+  direct_url: 'https://www.google.com/search?udm=50&q={{keyword}}&hl=en&gl=us'
+
+ai_prompt_box:
+  selector_version: '2026-08-21.1'
+  input:
+    - { type: role, role: textbox, name: '(?i)(ask anything|ask a follow.?up|ask ai mode)' }
+    - { type: css, css: "textarea[aria-label*='Ask' i]" }
+    - { type: css, css: "div[contenteditable='true'][role='textbox']" }
+    - { type: css, css: "textarea[name='q'][aria-label*='ai' i]" }
+  submit:
+    - { type: role, role: button, name: '(?i)^(send|submit|ask)$' }
+    - { type: css, css: "button[aria-label*='Send' i]" }
+    - { type: css, css: "button[type='submit']" }
+  response_container:
+    - { type: css, css: '[data-rp-response]' }
+    - { type: css, css: "[data-subtree='aimc']" }
+    - { type: css, css: "div[data-mode='ai'] div[data-content]" }
+    - { type: css, css: "[data-ai-response='true']" }
+  generating_markers:
+    - { type: css, css: "[aria-busy='true']" }
+    - { type: css, css: "[role='progressbar']" }
+    - { type: css, css: "[data-loading='true']" }
+  exclude_in_response:
+    - 'button'
+    - "[role='button']"
+    - '[data-follow-up]'
+    - 'g-scrolling-carousel'
+    - "[role='dialog']"
+    - "[aria-label*='Share' i]"
+    - "[jsname='r4nke']"
+  # Cat bo phan duoi cua cau tra loi khi gap cac moc UI nay
+  # (khoi Share/Export cua AI Mode bi chen ngay sau noi dung tra loi).
+  response_stop_markers:
+    - '(?i)^#{1,6}\s*share public link\s*$'
+    - '(?i)^share public link$'
+    - '(?i)^this public link is valid for'
+    - '(?i)^#{1,6}\s*export\s*$'
+    - '(?i)^(facebook|gmail|whatsapp|reddit)$'
+
+ahrefs_widget:
+  selector_version: '2026-08-21.1'
+  # Dung cho --capture-dom khi khong selector nao trung
+  probe_text: '(?i)keywords? ideas'
+  container:
+    - { type: css, css: "[id*='ahrefs' i]" }
+    - { type: css, css: "[class*='ahrefs' i]" }
+    - { type: css, css: 'div[data-ahrefs-widget]' }
+    - { type: text_container, text: '(?i)^keywords ideas$', up: 8 }
+  tabs:
+    keywords_ideas:
+      - { type: role, role: tab, name: '(?i)keywords? ideas' }
+      - { type: text, text: '(?i)^keywords? ideas$' }
+    people_also_ask:
+      - { type: role, role: tab, name: '(?i)people also ask' }
+      - { type: text, text: '(?i)^people also ask$' }
+  rows:
+    - { type: css, css: "[role='row']" }
+    - { type: css, css: 'li' }
+    - { type: css, css: 'tr' }
+  copy_button:
+    - { type: role, role: button, name: '(?i)^copy( all)?$' }
+    - { type: text, text: '(?i)^copy( all)?$' }
+  country_control:
+    - { type: role, role: button, name: '(?i)(united states|country)' }
+    - { type: css, css: "[data-country], select[name*='country' i]" }
+  country_us_markers:
+    - '(?i)united states'
+    - '(?i)\bus\b'
+  ui_noise:
+    - '(?i)^copy( all)?$'
+    - '(?i)^sign ?in$'
+    - '(?i)^save urls?$'
+    - '(?i)^monitor this query$'
+    - '(?i)^keywords? ideas$'
+    - '(?i)^people also ask$'
+    - '(?i)^volume$'
+    - '(?i)^kd$'
+    - '(?i)^cpc$'
+    - '(?i)^difficulty$'
+    - '(?i)^ahrefs'
+    - '(?i)^upgrade'
+    - '(?i)^powered by'
+    - '(?i)^see all'
+    - '(?i)^show more$'
+
+google_paa:
+  selector_version: '2026-08-21.1'
+  probe_text: '(?i)^people also ask$'
+  container:
+    - { type: css, css: 'div[data-initq]' }
+    - { type: css, css: "[jsname='yEVEwb']" }
+    - { type: text_container, text: '(?i)^people also ask$', up: 5 }
+  question_nodes:
+    - { type: css, css: 'div[data-q]' }
+    - { type: css, css: "[role='heading'][aria-level='3']" }
+    - { type: css, css: "div[jsname='Cpkphb']" }
+  answer_nodes:
+    - { type: css, css: "div[data-attrid='wa:/description']" }
+    - { type: css, css: "[jsname='vpsFbe']" }
+
+google_suggestions:
+  selector_version: '2026-08-21.1'
+  probe_text: ''
+  search_box:
+    - { type: role, role: combobox, name: '(?i)^search$' }
+    - { type: css, css: "textarea[name='q']" }
+    - { type: css, css: "input[name='q']" }
+  listbox:
+    - { type: css, css: "ul[role='listbox']" }
+    - { type: css, css: "[role='listbox']" }
+    - { type: css, css: "[jsname='erkvQe']" }
+  option_nodes:
+    - { type: css, css: "li[role='presentation']" }
+    - { type: css, css: "li[role='option']" }
+    - { type: css, css: "[role='option']" }
+  entity_label_markers:
+    - '(?i)^(movie|film|actor|singer|band|company|book|tv series|person|topic)$'
+  # Nut nam trong tung dong goi y - phai loai truoc khi lay text
+  # (Google hien nut "Delete" cho goi y lay tu lich su tim kiem cua tai khoan).
+  control_nodes:
+    - { type: css, css: 'button' }
+    - { type: css, css: "[role='button']" }
+    - { type: css, css: "[aria-label*='Delete' i]" }
+    - { type: css, css: "[aria-label*='Remove' i]" }
+    - { type: css, css: "[jsname='cMdKrc']" }
+  control_words:
+    - 'Delete'
+    - 'Remove'
+    - 'Report'
+  # HEP hon control_nodes: chi nhung nut nay moi chung to dong den tu lich su
+  # tim kiem. KHONG duoc them 'button' hay '[role=button]' vao day - dropdown
+  # Google co nut o moi dong, se lam vut het goi y dung (loi that 2026-08-22).
+  delete_nodes:
+    - { type: css, css: "[aria-label*='Delete' i]" }
+    - { type: css, css: "[aria-label*='Remove' i]" }
+    - { type: css, css: "[data-remove]" }
+
+extension_suggestions:
+  selector_version: '2026-08-21.1'
+  rows:
+    - { type: css, css: "[class*='suggestion' i] li" }
+    - { type: css, css: 'ul li' }
+    - { type: css, css: "[role='listitem']" }
+    - { type: css, css: 'table tr td:first-child' }
+  copy_all:
+    - { type: role, role: button, name: '(?i)^copy all$' }
+    - { type: text, text: '(?i)^copy all$' }
+  ui_noise:
+    - '(?i)^copy all$'
+    - '(?i)^export$'
+    - '(?i)^settings$'
+    - '(?i)^suggestions?$'
+    - '(?i)^keyword$'
+
+extension_serp_export:
+  selector_version: '2026-08-21.1'
+  trigger:
+    - { type: role, role: button, name: '(?i)(extract|scrape|get results|analy[sz]e)' }
+    - { type: text, text: '(?i)^(extract|extract serp|get results)$' }
+  export_csv:
+    - { type: role, role: button, name: '(?i)(export.*csv|^csv$|download)' }
+    - { type: text, text: '(?i)(export csv|download csv|export to csv)' }
+    - { type: role, role: link, name: '(?i)(export.*csv|download.*csv)' }
+
+native_serp:
+  selector_version: '2026-08-21.1'
+  result_containers:
+    - '#rso'
+    - '#search'
+    - 'div[data-async-context]'
+  exclude_containers:
+    - '[data-text-ad]'
+    - "[aria-label='Ads']"
+    - '#tads'
+    - '#bottomads'
+    - '#taw'
+    - "[data-attrid*='AIOverview' i]"
+    - "[data-subtree='aiov']"
+    - 'div[data-initq]'
+    - "[jsname='yEVEwb']"
+    - 'g-scrolling-carousel'
+    - 'video-voyager'
+    - "[id*='ahrefs' i]"
+    - "[class*='ahrefs' i]"
+    - '[data-ahrefs-widget]'
+    - '#appbar'
+    - '#topstuff'
+    - '#botstuff'
+  exclude_text_anchors:
+    - '(?i)^sponsored$'
+    - '(?i)^ad$'
+    - '(?i)^ads$'
+    - '(?i)^people also ask$'
+    - '(?i)^ai overview$'
+    - '(?i)^videos$'
+    - '(?i)^images$'
+    - '(?i)^shopping results$'
+    - '(?i)^discussions and forums$'
+  featured_snippet_containers:
+    - "[data-attrid='wa:/description']"
+    - "[data-md='61']"
+    - '[data-featured-snippet]'
+  exclude_url_patterns:
+    - '^chrome-extension://'
+    - '^javascript:'
+    - '^#'
+    - '^https?://(www\.)?google\.[a-z.]+/(search|preferences|advanced_search|imgres|url|intl)'
+    - '^https?://(webcache|translate|policies|support|accounts|maps)\.google\.'
+    - '^https?://[a-z]+\.google\.com/search'
+
+  container:
+    - { type: css, css: "[data-attrid*='AIOverview' i]" }
+    - { type: css, css: "div[data-subtree='aiov']" }
+    - { type: text_container, text: '(?i)^ai overview$', up: 6 }
+  show_more:
+    - { type: role, role: button, name: '(?i)^show more$' }
+    - { type: text, text: '(?i)^show more$' }
+    - { type: css, css: "[aria-expanded='false'][role='button']" }
+  ai_mode_entry:
+    - { type: role, role: link, name: '(?i)^ai mode$' }
+    - { type: role, role: tab, name: '(?i)^ai mode$' }
+    - { type: text, text: '(?i)^ai mode$' }
+    - { type: css, css: "a[href*='udm=50']" }
+  direct_url: 'https://www.google.com/search?udm=50&q={{keyword}}&hl=en&gl=us'

@@ -1,0 +1,62 @@
+<!-- Fixture tai hien DOM THAT cua dropdown Google (run 2026-08-22, keyword
+     "samoan traditional clothing").
+
+     Diem mau chot: MOI dong goi y deu co mot icon trang tri aria-hidden="true"
+     va mot nut role=button. Chi rieng dong lay tu LICH SU tim kiem moi co
+     nut xoa mang aria-label="Delete".
+
+     Bug that: isPersonalized() dung isControlNode() (von coi aria-hidden la
+     nut dieu khien) nen gan nhan "lich su ca nhan" cho TAT CA cac dong va vut
+     bo 10 goi y dung. -->
+<html>
+<body>
+  <form action="/search">
+    <textarea name="q" role="combobox" aria-label="Search">samoan traditional clothing</textarea>
+  </form>
+
+  <ul role="listbox">
+    <!-- Goi y THAT cua Google: co icon aria-hidden + nut, KHONG co nut xoa -->
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="magnifier-icon"></svg>
+        <span>samoan traditional clothing male</span>
+      </div>
+      <div role="button" aria-label="Search for this"></div>
+    </li>
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="magnifier-icon"></svg>
+        <span>samoan traditional clothing female</span>
+      </div>
+      <div role="button" aria-label="Search for this"></div>
+    </li>
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="magnifier-icon"></svg>
+        <span>samoan traditional clothing puletasi</span>
+      </div>
+    </li>
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="magnifier-icon"></svg>
+        <span>traditional puletasi</span>
+      </div>
+    </li>
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="magnifier-icon"></svg>
+        <span>puletasi dress designs</span>
+      </div>
+    </li>
+
+    <!-- Dong LICH SU that su: co nut xoa aria-label="Delete" -->
+    <li role="presentation">
+      <div role="option">
+        <svg aria-hidden="true" class="history-icon"></svg>
+        <span>samoan clothing i searched before</span>
+      </div>
+      <div role="button" aria-label="Delete">Delete</div>
+    </li>
+  </ul>
+</body>
+</html>

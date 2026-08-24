@@ -1,0 +1,53 @@
+/* Sets the base styling for body and html */
+body,
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%; /* Ensures the root elements take full width */
+  box-sizing: border-box; /* Includes padding and border in the element's total width and height */
+}
+
+/* Styles for the container */
+.container {
+  padding: 10px;
+  width: calc(100% - 20px); /* Adjusts width considering padding */
+  box-sizing: border-box;
+}
+
+/* Styling for the suggestions box */
+#suggestionsBox {
+  width: 395px;
+  max-height: 500px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+/* Styling for each suggestion item */
+.list-group-item {
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  border: 1px solid #f0f0f0;
+  margin-bottom: 5px;
+}
+
+/* Hover effect for suggestion items */
+.list-group-item:hover {
+  background-color: #f8f9fa;
+}
+
+/* Ensures list items take full width of the container, accounting for padding */
+.list-group {
+  padding-left: 0;
+  list-style: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Responsive design adjustments */
+@media (max-width: 400px) {
+  .container {
+    padding: 5px;
+    width: calc(100% - 10px);
+  }
+}

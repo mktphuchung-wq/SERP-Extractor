@@ -1,0 +1,37 @@
+<!-- Fixture: widget Ahrefs nam TRONG shadow root (gia thuyet H1 cua dac ta v2.0 §2.1).
+     Dung de kiem chung: capture co xuyen duoc shadow root va bao dung scopeKind.
+     linkedom khong mo phong shadow DOM nen fixture nay chi chay tren Chrome that. -->
+<html>
+<body>
+  <div id="search">
+    <div id="rso">
+      <div class="g"><a href="https://example.com/a"><h3>Ket qua organic</h3></a></div>
+    </div>
+  </div>
+
+  <!-- Host cua widget: extension chen vao trang roi dung shadow root -->
+  <div id="ahrefs-host"></div>
+
+  <script>
+    const host = document.getElementById('ahrefs-host');
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = `
+      <div data-testid="ahrefs-serp-widget" class="ahrefs-widget-root">
+        <div role="tablist">
+          <button role="tab" data-tab="keywords" aria-selected="true">Keywords ideas</button>
+          <button role="tab" data-tab="paa" aria-selected="false">People also ask</button>
+        </div>
+        <div role="tabpanel" data-panel="keywords">
+          <div role="row"><div role="cell">samoan traditional clothing male</div><div role="cell">1200</div></div>
+          <div role="row"><div role="cell">samoan traditional clothing female</div><div role="cell">880</div></div>
+          <div role="row"><div role="cell">traditional puletasi</div><div role="cell">320</div></div>
+        </div>
+        <div role="tabpanel" data-panel="paa" aria-hidden="true">
+          <div role="row"><div role="cell">What is the traditional Samoan clothing called?</div></div>
+        </div>
+        <button class="copy-btn">Copy</button>
+      </div>
+    `;
+  </script>
+</body>
+</html>

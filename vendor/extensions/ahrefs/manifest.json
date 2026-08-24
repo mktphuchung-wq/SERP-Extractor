@@ -1,0 +1,63 @@
+{
+   "action": {
+      "default_icons": {
+         "32": "images/colored-32.png"
+      },
+      "default_popup": "popup.html"
+   },
+   "background": {
+      "service_worker": "event.js"
+   },
+   "commands": {
+      "_execute_action": {
+         "suggested_key": {
+            "default": "Alt+S",
+            "linux": "Alt+S",
+            "mac": "MacCtrl+Command+S",
+            "windows": "Alt+S"
+         }
+      },
+      "toggle-page-metrics": {
+         "description": "Toggle Metrics bar",
+         "suggested_key": {
+            "default": "Alt+A",
+            "linux": "Alt+A",
+            "mac": "MacCtrl+Command+A",
+            "windows": "Alt+A"
+         }
+      }
+   },
+   "content_scripts": [ {
+      "css": [ "content.css" ],
+      "exclude_globs": [ "https://*.ahrefs.com/*", "https://*.ahrefs.me/*" ],
+      "exclude_matches": [ "https://www.bing.com/*", "https://www.facebook.com.login.php/", "*://*/*.pdf", "*://*/*.txt", "*://*/*.xml" ],
+      "js": [ "content.js" ],
+      "matches": [ "*://*/*" ],
+      "run_at": "document_idle"
+   }, {
+      "exclude_globs": [ "https://*.ahrefs.com/*" ],
+      "exclude_matches": [ "https://www.bing.com/*", "https://www.facebook.com.login.php/", "*://*/*.pdf", "*://*/*.txt", "*://*/*.xml" ],
+      "js": [ "content-service.js" ],
+      "matches": [ "*://*/*" ],
+      "run_at": "document_idle"
+   } ],
+   "default_locale": "en",
+   "description": "__MSG_manifest_description__",
+   "homepage_url": "https://ahrefs.com/",
+   "host_permissions": [ "*://*/*", "https://ahrefs.com/v4/", "https://app.ahrefs.com/" ],
+   "icons": {
+      "128": "images/colored-128.png",
+      "48": "images/colored-48.png",
+      "64": "images/colored-64.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk3eMNMxROt3WllMnUtB1/bvZNdhu3f0Ev5EYkK4jeLZsd+0C0kfSFw2eyMAr+Ylwga5habxsAAP1kOUNEGIp4hMK/q/VGPYv1d+XX6WLPQzBh5JoT92hH6QiQCCpx11DlojDh5GeIDH07PnOnCeV2io3gq7iAxh3mhWgdMRRioNqMoyFAKQP2LxFRG96VNNKdbgKqnXxZHCg7rMs8QZrqmSTWn/xIKjjXASj+6LaCr/FCJDHx+1d4uAi2aYOuu3oJCCcj/K+xlntU7EHT+pEekH8zZB7FXfOz3XW4YQmQe2pc6U8RerUa3ndS+GPFFY+A4CghaToxVRrUz3u0w8EMwIDAQAB",
+   "manifest_version": 3,
+   "name": "Ahrefs SEO Toolbar",
+   "permissions": [ "declarativeNetRequestWithHostAccess", "identity", "tabs", "storage", "webNavigation", "webRequest" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "3.2.10",
+   "web_accessible_resources": [ {
+      "matches": [ "*://*/*" ],
+      "resources": [ "images/countries/*.svg", "images/check.svg" ]
+   } ]
+}

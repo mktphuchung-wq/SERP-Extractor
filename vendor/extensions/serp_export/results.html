@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEO SERP URL Extraction</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Roboto:wght@400&display=swap');
+  
+    body {
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+      background-color: #fdfffd; /* Light background color */
+    }
+    h1 {
+      color: #343b3b; /* Primary dark color */
+      font-size: 28px;
+      font-weight: bold;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      font-family: 'Montserrat', sans-serif;
+    }
+    h2 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      color: #343b3b; /* Primary dark color */
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 20px 0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      background-color: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 12px;
+      text-align: left;
+    }
+    th {
+      background-color: #343b3b; /* Dark background for header */
+      color: #fdfffd; /* Light text color for contrast */
+    }
+    #link-source{
+      text-align: center;
+    }
+    th:nth-child(1) {
+      width: 5%;
+    }
+    th:nth-child(2) {
+      width: 40%;
+    }
+    th:nth-child(3) {
+      width: 40%;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    tr:hover {
+      background-color: #e1e1e1; /* Light grey on hover */
+    }
+    a, #title {
+      color: #e72537; /* Brand red color for links */
+      text-decoration: none;
+      transition: color 0.3s;
+      font-family: 'Montserrat', sans-serif;
+    }
+    a:hover {
+      color: #343b3b; /* Dark color on hover */
+    }
+    #header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    #logo {
+      max-width: 128px;
+      margin-right: 10px;
+    }
+    #title {
+      margin: 0;
+    }
+    #controls {
+      margin: 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #search-input {
+      padding: 10px;
+
+      border: 1px solid #ccc;
+      width: 300px;
+    }
+    #tabs {
+      margin-bottom: 20px;
+    }
+    #tabs button {
+      padding: 10px 20px;
+      background-color: #e72537; /* Brand red color for tabs */
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-family: 'Montserrat', sans-serif;
+    }
+    #tabs button:hover {
+      background-color: #343b3b; /* Dark color on tab hover */
+    }
+    #export-btn {
+      padding: 10px 20px;
+      background-color: #e72537; /* Brand red color for export button */
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+  /* Styling for Export buttons */
+  #export-serp-btn, #export-paa-btn {
+    padding: 10px 20px;
+    background-color: #e72537; /* Brand red color */
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-family: 'Montserrat', sans-serif;
+    display: none; /* Initially hidden */
+    float: right;
+  }
+
+  #export-serp-btn:hover, #export-paa-btn:hover {
+    background-color: #343b3b; /* Dark color on hover */
+  }
+    #export-btn:hover {
+      background-color: #343b3b; /* Dark color on hover */
+    }
+    #footer {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  background-color: #f2f2f2;
+  padding: 10px 0;
+  text-align: center;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+  z-index: 999; /* Ensure it stays on top */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px; /* Space between elements */
+}
+
+#linkedin-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0077b5;
+  text-decoration: none;
+  font-weight: bold;
+  font-family: 'Montserrat', sans-serif;
+}
+
+#linkedin-link img {
+  width: 24px;
+  height: 24px;
+  margin-right: 5px;
+}
+
+#linkedin-link span {
+  font-size: 16px;
+  transition: color 0.3s;
+}
+
+#linkedin-link:hover span {
+  color: #0056b3;
+}
+
+#footer a {
+  display: inline-flex;
+  align-items: center;
+}
+
+#footer img {
+  height: 36px;
+  width: auto;
+}
+
+  </style>
+  
+  
+</head>
+<body>
+  <div id="header">
+    <div style="display: flex; align-items: center;">
+      <img src="icons/icon128.png" alt="Extension Logo" id="logo">
+      <h1 id="title">SEO SERP URL Extraction</h1>
+    </div>
+  </div>
+  <div id="controls">
+    <input type="text" id="search-input" placeholder="Search by URL">
+  </div>
+  <div id="tabs">
+    <button id="serp-tab">SERP Results</button>
+    <button id="paa-tab">PAA Results</button>
+    <button id="export-serp-btn" style="display:none;">Export SERP CSV</button>
+    <button id="export-paa-btn" style="display:none;">Export PAA CSV</button>
+  </div>
+
+  <div id="serp-container">
+    <h2>Search Engine Results</h2>
+    <table>
+      <thead>
+        <tr><th style="text-align: center;">Position</th><th>URL</th><th>Title</th></tr>
+      </thead>
+      <tbody id="serp-results"></tbody>
+    </table>
+  </div>
+
+  <div id="paa-container" style="display:none;">
+    <h2>People Also Ask (PAA)</h2>
+    <table>
+      <thead>
+        <tr><th style="text-align: center;">#</th><th>Question</th><th>Answer</th><th style="text-align: center;">Link</th></tr>
+      </thead>
+      <tbody id="paa-results"></tbody>
+    </table>
+  </div>
+  <div id="feedback" role="status"></div>
+  <div id="footer">
+    <a href="https://www.linkedin.com/in/pemba-tshiring-sherpa/" target="_blank" id="linkedin-link">
+      <img src="icons/linkedin.png" alt="LinkedIn Logo"> 
+      <span>Connect on LinkedIn</span>
+    </a>
+    <a href='https://ko-fi.com/K3K419QVZ0' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+  </div>
+  <script src="resultsScript.js"></script>
+</body>
+</html>

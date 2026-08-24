@@ -1,0 +1,91 @@
+<!-- Fixture SERP Page 1 day du dung cho E2E cuc bo:
+     AI Overview (co streaming), o tim kiem + dropdown suggestion, block PAA,
+     ket qua organic lan ads/video/extension node. KHONG co widget Ahrefs
+     (de kiem tra duong canh bao AHREFS_*). -->
+<html>
+<head><title>Filipino vs Samoan - Search</title></head>
+<body>
+  <form action="/search">
+    <textarea name="q" role="combobox" aria-label="Search">Filipino vs Samoan</textarea>
+  </form>
+  <ul role="listbox">
+    <li role="presentation"><span>filipino vs samoan</span></li>
+    <li role="presentation"><span>filipino vs samoan culture</span><span>Topic</span></li>
+    <li role="presentation"><span>filipino vs samoan height</span></li>
+    <li role="presentation"><span>Filipino VS Samoan</span></li>
+  </ul>
+
+  <div id="search">
+    <div id="rso">
+
+      <div data-attrid="AIOverviewBlock">
+        <div role="heading" aria-level="2">AI Overview</div>
+        <div class="ai-body"><p>Short AI Overview text before expanding.</p></div>
+        <div role="button" aria-expanded="false" id="showmore">Show more</div>
+        <div class="ai-follow-up">
+          <textarea aria-label="Ask anything" id="promptbox"></textarea>
+          <button aria-label="Send" id="send">Send</button>
+        </div>
+        <div id="responses"></div>
+      </div>
+
+      <div class="g" data-hveid="1">
+        <a href="/url?q=https%3A%2F%2Fwww.first.com%2Fpage&amp;sa=U"><h3>First Organic Result</h3></a>
+        <cite>www.first.com</cite>
+        <div data-sncf="1">Description one, with a comma, and enough text to pass the length gate.</div>
+      </div>
+
+      <div data-initq="people-also-ask">
+        <div role="heading" aria-level="2">People also ask</div>
+        <div data-q="Are Filipinos and Samoans related?"></div>
+        <div data-q="Is Samoan closer to Hawaiian than Filipino?"></div>
+        <div data-q="Are Filipinos and Samoans related?"></div>
+      </div>
+
+      <div class="g" data-hveid="2">
+        <span>Sponsored</span>
+        <a href="https://ad.example.com/deal"><h3>Sponsored Result</h3></a>
+      </div>
+
+      <div class="g" data-hveid="3">
+        <a href="https://second.com/article"><h3>Second Organic Result</h3></a>
+        <cite>second.com</cite>
+        <div data-sncf="1">Second description text that is long enough to be captured properly.</div>
+      </div>
+
+      <div class="g" data-hveid="4">
+        <a href="chrome-extension://oijhomofkbpbjldkdhkkjkcdokdigeie/results.html"><h3>Extension Node</h3></a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    var CHUNKS = [
+      '<h3>Main similarities</h3>',
+      '<p>Both peoples share <strong>Austronesian</strong> ancestry.</p>',
+      '<ul><li>Related language families</li><li>Island geography</li></ul>',
+      '<p>Read <a href="https://source.example.com/study">this study</a>.</p>'
+    ];
+    document.getElementById('showmore').addEventListener('click', function () {
+      this.setAttribute('aria-expanded', 'true');
+      document.querySelector('.ai-body').innerHTML += '<p>Expanded extra overview paragraph.</p>';
+    });
+    document.getElementById('send').addEventListener('click', function () {
+      var host = document.getElementById('responses');
+      var block = document.createElement('div');
+      block.setAttribute('data-rp-response', '1');
+      host.appendChild(block);
+      var spinner = document.createElement('div');
+      spinner.setAttribute('role', 'progressbar');
+      host.appendChild(spinner);
+      var i = 0;
+      var timer = setInterval(function () {
+        if (i >= CHUNKS.length) { clearInterval(timer); spinner.remove(); return; }
+        block.innerHTML += CHUNKS[i];
+        i += 1;
+      }, 150);
+    });
+  </script>
+</body>
+</html>

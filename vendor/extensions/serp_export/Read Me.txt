@@ -1,0 +1,5 @@
+- Unzip the Extension
+- Go to the Extension Section on Chrome
+- Click on Load Unpacked 
+- Click on the extension Folder
+- Once uploaded search for any query and click on the extension to load the results 

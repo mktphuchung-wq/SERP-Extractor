@@ -1,0 +1,25 @@
+{
+   "action": {
+      "default_icon": {
+         "16": "icon.png"
+      },
+      "default_popup": "popup.html"
+   },
+   "background": {
+      "service_worker": "background.js"
+   },
+   "content_scripts": [ {
+      "js": [ "content.js" ],
+      "matches": [ "https://www.google.com/*" ]
+   } ],
+   "description": "Extract search suggestions from Google Search",
+   "icons": {
+      "16": "icon.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoDzhonjUd5a1Bz+wivq9VhGWWopOp4aAusxhA0aNARaN3ZwYKdX9jKuRVv8/KO7ABlR55jOQ5Q1itrjE6+GWB0D9jF/aiJRXQeuMJX2sN9SToSATJhcWSTHpCFCjxbvedqbktoJPj5DxmySgy4ULdTxBf5wv9kUpzmYFVgRME6B9WQvaRJxdMGZ8uc1lLO9s1LuSt2k0r/1pLTyPPHwSzz+7mvTr6qhRUT+mIRQMulpXDqoCUDt6aMGKeU2Ug9lrAoBO417SV/B+Xry4IdgO8N5DwZLyilFaLY+Zlx/mFLumITjOXJEqi10SlsSqMvFq8xl58EozFyW2FCA/QCy+SwIDAQAB",
+   "manifest_version": 3,
+   "name": "Google Search Suggestion Extractor",
+   "permissions": [ "activeTab", "scripting" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0"
+}
