@@ -11,15 +11,19 @@ browser:
   chrome_path: auto
   user_data_dir: '%LOCALAPPDATA%\AutoSerpTool\chrome-profile'
   remote_debugging_port: 9222
-  # Tinh nang cua Chrome phai TAT vi no cuop lay dieu huong cua trang web.
+  # Tinh nang cua Chrome bi tat vi no cuop lay dieu huong cua trang web.
   #
-  # ContextualTasks_Srp2Aim: tu Chrome 152, khi trang SERP di sang AI Mode (udm=50),
-  #   Chrome khong tai trang do trong tab nua ma mo giao dien noi bo
-  #   chrome://contextual-tasks/ va nhet trang web that vao ben trong mot <webview>.
-  #   Nguoi dung van doc duoc cau tra loi, nhung Playwright bam vao tab ben ngoai nen
-  #   doc ra 0 ky tu -> AI_RESPONSE_TIMEOUT va muc "AI Mode" rong, du man hinh hien
-  #   day du. Tat co nay thi AI Mode chay lai nhu mot trang web binh thuong.
-  # ContextualTasksDesktop: cong tac tong cua nhom tinh nang do.
+  # Boi canh: tu Chrome 152, khi SERP di sang AI Mode (udm=50), Chrome KHONG tai
+  # trang do trong tab nua. No mo giao dien noi bo chrome://contextual-tasks/ roi
+  # nhet trang google.com that vao trong mot <webview>. Nguoi dung van doc duoc
+  # cau tra loi, nhung Playwright bam vao tab ben ngoai nen doc ra 0 ky tu ->
+  # AI_RESPONSE_TIMEOUT va muc "AI Mode" rong du man hinh hien day du.
+  #
+  # DA THU VA CHUA AN THUA: tat hai co duoi day KHONG chan duoc chuyen huong tren
+  # Chrome for Testing 152.0.7977.54 - tab van thanh chrome://contextual-tasks/.
+  # Giu lai vi vo hai va co the co tac dung o phien ban khac. Cach sua thuc su phai
+  # doc noi dung tu chinh target "webview" qua CDP; Playwright khong expose target
+  # kieu do thanh page.
   disable_features:
     - ContextualTasks_Srp2Aim
     - ContextualTasksDesktop
