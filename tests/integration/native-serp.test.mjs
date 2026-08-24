@@ -115,3 +115,61 @@ test('native SERP: trang khong co ket qua thi tra ve mang rong, khong nem loi', 
   });
   assert.deepEqual(rows, []);
 });
+
+/* ---------------------------------------------------------------------------
+ * Layout Google co them mot DIV bao giua #rso va tung khoi ket qua.
+ * Xem tests/fixtures/serp-wrapped-rso.html de biet vi sao no tung lam mat sach
+ * ket qua page 1 cua truy van "best running shoes".
+ * ------------------------------------------------------------------------- */
+
+test('#rso co DIV bao o giua: van lay du ket qua organic', () => {
+  const rows = extract('serp-wrapped-rso.html');
+  assert.equal(rows.length, 3, 'phai lay du 3 ket qua, khong duoc mat vi khoi PAA nam chung boc');
+  assert.deepEqual(rows.map((r) => r.title), [
+    'The 15 Best Running Shoes of 2026',
+    "What are the best running shoes that you'd actually buy",
+    '100+ Running Shoe Reviews',
+  ]);
+});
+
+test('#rso co DIV bao o giua: khong lay nham PAA lam ket qua', () => {
+  const rows = extract('serp-wrapped-rso.html');
+  for (const row of rows) {
+    assert.doesNotMatch(row.title, /Which running shoe brand|How much should I spend/);
+  }
+});
+
+test('#rso co DIV bao o giua: moi ket qua giu dung cite va description cua no', () => {
+  const rows = extract('serp-wrapped-rso.html');
+
+  assert.match(rows[0].displayed_url, /runnersworld\.com/);
+  assert.match(rows[0].description, /^Aug 3, 2026/);
+
+  assert.match(rows[1].displayed_url, /210\+ comments/);
+  assert.match(rows[1].description, /finally replacing my running shoes/);
+
+  assert.match(rows[2].displayed_url, /runrepeat\.com/);
+  assert.match(rows[2].description, /Nike Vomero 18/);
+
+  // Khoi bi phinh se khien moi dong deu om ca 3 mo ta -> description dai bat thuong.
+  for (const row of rows) {
+    assert.ok(row.description.length < 250, `description qua dai (${row.description.length}) - khoi bi phinh`);
+  }
+});
+
+test('khoi ket qua khong duoc chua nhieu hon mot tieu de', () => {
+  // Bat truc tiep bat bien ma findBlock() phai giu, tren ca hai fixture.
+  for (const fixture of ['serp-mixed.html', 'serp-wrapped-rso.html']) {
+    const rows = extract(fixture);
+    const titles = rows.map((r) => r.title);
+    for (const row of rows) {
+      const others = titles.filter((t) => t !== row.title);
+      for (const other of others) {
+        assert.ok(
+          !row.description.includes(other),
+          `${fixture}: description cua "${row.title}" chua tieu de cua ket qua khac ("${other}")`,
+        );
+      }
+    }
+  }
+});

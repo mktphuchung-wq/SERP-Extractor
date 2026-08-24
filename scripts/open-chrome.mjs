@@ -81,6 +81,7 @@ async function main() {
     userDataDir,
     viewport: config.browser.viewport,
     loadExtensions: bundle.dirs,
+    disableFeatures: config.browser.disable_features,
     urls: ['https://www.google.com/search?q=test&hl=en&gl=us&pws=0'],
   });
 

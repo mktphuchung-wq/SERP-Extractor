@@ -118,14 +118,38 @@ export function extractOrganicResults(arg) {
   function headingCount(el) {
     return qsa(el, 'h3').length + qsa(el, '[role="heading"][aria-level="3"]').length;
   }
+
+  /**
+   * Tim khoi DOM bao quanh MOT ket qua, di len tu the <a>.
+   *
+   * Bat buoc: khoi tra ve chi duoc chua DUNG MOT ket qua. Neu no phinh ra om ca
+   * cac ket qua khac thi:
+   *   - description va displayed_url lay nham cua ket qua ben canh;
+   *   - va nang hon, hasExcludedLabel() gap chu "People also ask" / "Videos" cua
+   *     mot khoi khac nam trong do roi loai bo TOAN BO ket qua.
+   *
+   * Ban truoc co dong `if (parent === scope) { best = node; break; }` - no ghi de
+   * mat `best` da tim dung, roi lay luon con truc tiep cua scope lam khoi. Dieu do
+   * chi dung khi Google xep `#rso > div.MjjYud` (moi ket qua mot con). Tu ban
+   * layout them mot DIV bao o giua (`#rso > DIV > div.MjjYud`), con truc tiep cua
+   * scope tro thanh khoi 50 KB chua ca 9 ket qua lan khoi PAA - va truy van
+   * "best running shoes" mat sach page 1 vi ly do do.
+   */
   function findBlock(anchor) {
     let node = anchor;
     let best = anchor;
     let depth = 0;
     while (node && node.parentElement && node !== scope && depth < 10) {
       const parent = node.parentElement;
-      if (parent === scope) { best = node; break; }
-      if (headingCount(parent) === 1) best = parent;
+      // Khong bao gio lay chinh scope (hoac to hon) lam khoi ket qua.
+      if (parent === scope) break;
+
+      const count = headingCount(parent);
+      // So tieu de chi tang dan khi di len, nen gap ancestor bao tu hai ket qua
+      // tro len la co the dung han.
+      if (count > 1) break;
+      if (count === 1) best = parent;
+
       node = parent;
       depth += 1;
     }

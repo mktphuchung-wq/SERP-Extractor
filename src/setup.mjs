@@ -115,6 +115,7 @@ export async function runFirstTimeSetup(config, opts = {}) {
       viewport: config.browser.viewport,
       urls: webstoreUrls,
       loadExtensions: resolveLoadExtensions(config).dirs,
+      disableFeatures: config.browser.disable_features,
       logger,
     });
     await sleep(2500);

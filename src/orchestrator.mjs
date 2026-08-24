@@ -633,8 +633,29 @@ async function stepWriteAndValidate(state, options) {
     backupDir,
   });
 
-  const allowEmptyCsv = (state.counts.serp_page_1_rows ?? 0) === 0
-    && state.warnings.includes(WARNING_CODES.SERP_EMPTY_PAGE);
+  // Cua thoat cho truong hop Google that su khong tra ve ket qua nao: cho phep
+  // CSV rong di qua quality gate thay vi lam hong ca run.
+  //
+  // NHUNG page 1 rong ma page 2 co ket qua la mau thuan - Google khong the tra ve
+  // 0 ket qua o start=0 roi 10 ket qua o start=10. Gap the thi gan nhu chac chan
+  // la loi trich xuat, khong phai Google. Dong cua thoat lai de quality gate bao
+  // that to, thay vi bao "thanh cong" kem mot file CSV rong.
+  const page1Rows = state.counts.serp_page_1_rows ?? 0;
+  const page2Rows = state.counts.serp_page_2_rows ?? 0;
+  const contradictoryEmptyPage1 = page1Rows === 0 && page2Rows > 0;
+
+  if (contradictoryEmptyPage1) {
+    logger.error(
+      `Page 1 khong co ket qua nao trong khi Page 2 co ${page2Rows}. Day la mau thuan, `
+      + 'nhieu kha nang selector cua native extractor da lech so voi layout hien tai cua Google. '
+      + 'Chay lai voi --capture-dom de chup DOM that ra logs\\<run_id>\\dom-snapshots\\.',
+      { code: WARNING_CODES.SERP_EMPTY_PAGE, page1Rows, page2Rows },
+    );
+  }
+
+  const allowEmptyCsv = page1Rows === 0
+    && state.warnings.includes(WARNING_CODES.SERP_EMPTY_PAGE)
+    && !contradictoryEmptyPage1;
 
   const validation = validateRun({
     dir: state.outputDir,

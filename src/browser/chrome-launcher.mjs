@@ -145,6 +145,12 @@ export function spawnChrome(chromePath, opts) {
     '--no-default-browser-check',
   ];
 
+  // Tat cac tinh nang cua Chrome cuop lay dieu huong cua trang (xem
+  // browser.disable_features trong config/default.yaml).
+  if (opts.disableFeatures?.length) {
+    args.push(`--disable-features=${opts.disableFeatures.join(',')}`);
+  }
+
   // Nap 3 extension dong goi san. Chi co tac dung tren Chrome for Testing;
   // Chrome ban chinh thuc bo qua flag nay (xem ghi chu o BUNDLED_CHROME).
   if (opts.loadExtensions?.length) {
@@ -223,6 +229,7 @@ export async function ensureChrome(config, logger, opts = {}) {
     viewport: config.browser.viewport,
     urls: opts.urls,
     loadExtensions: bundle.dirs,
+    disableFeatures: config.browser.disable_features,
     logger,
   });
 

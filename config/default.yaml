@@ -11,6 +11,18 @@ browser:
   chrome_path: auto
   user_data_dir: '%LOCALAPPDATA%\AutoSerpTool\chrome-profile'
   remote_debugging_port: 9222
+  # Tinh nang cua Chrome phai TAT vi no cuop lay dieu huong cua trang web.
+  #
+  # ContextualTasks_Srp2Aim: tu Chrome 152, khi trang SERP di sang AI Mode (udm=50),
+  #   Chrome khong tai trang do trong tab nua ma mo giao dien noi bo
+  #   chrome://contextual-tasks/ va nhet trang web that vao ben trong mot <webview>.
+  #   Nguoi dung van doc duoc cau tra loi, nhung Playwright bam vao tab ben ngoai nen
+  #   doc ra 0 ky tu -> AI_RESPONSE_TIMEOUT va muc "AI Mode" rong, du man hinh hien
+  #   day du. Tat co nay thi AI Mode chay lai nhu mot trang web binh thuong.
+  # ContextualTasksDesktop: cong tac tong cua nhom tinh nang do.
+  disable_features:
+    - ContextualTasks_Srp2Aim
+    - ContextualTasksDesktop
   # Xac minh Chrome dang attach dung la profile automation (khong phai profile ca nhan).
   # Chi tat khi ban thuc su hieu minh dang lam gi.
   verify_profile: true
