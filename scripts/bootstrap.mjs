@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUNTIME_DIR = path.join(ROOT, 'runtime');
@@ -86,6 +86,37 @@ function unzip(zipPath, destDir) {
 }
 
 /* ---------------------------------------------------------------- buoc 1 */
+/**
+ * Tim npm de chay `npm install`.
+ *
+ * KHONG duoc goi thang 'npm.cmd' va tin vao PATH: may sach chua cai Node thi
+ * PATH khong co npm, va script nay dang chay bang Node portable trong
+ * runtime\node\ - ban portable do khong tu them minh vao PATH.
+ *
+ * Uu tien npm-cli.js di kem chinh ban Node dang chay: goi bang process.execPath
+ * nen khong can shell (Node 20+ chan spawn file .cmd khi shell=false), va khong
+ * dinh canh bao DEP0190 ve viec truyen tham so qua shell.
+ *
+ * @returns {{cmd:string, args:string[], shell:boolean, label:string}}
+ */
+export function resolveNpm(execPath = process.execPath, io = fs) {
+  const nodeDir = path.dirname(execPath);
+
+  const cli = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (io.existsSync(cli)) {
+    return { cmd: execPath, args: [cli], shell: false, label: 'npm di kem Node dang chay' };
+  }
+
+  const localCmd = path.join(nodeDir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
+  if (io.existsSync(localCmd)) {
+    // .cmd bat buoc phai qua shell tren Windows.
+    return { cmd: localCmd, args: [], shell: process.platform === 'win32', label: 'npm canh Node dang chay' };
+  }
+
+  const fallback = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return { cmd: fallback, args: [], shell: process.platform === 'win32', label: 'npm tren PATH he thong' };
+}
+
 function ensurePackages() {
   step(1, 'Kiem tra package Node...');
   const required = ['playwright-core', 'yaml', 'csv-parse', 'csv-stringify'];
@@ -94,12 +125,24 @@ function ensurePackages() {
     say('      Da du package.');
     return;
   }
-  say(`      Thieu: ${missing.join(', ')} - dang chay npm install ...`);
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const res = spawnSync(npmCmd, ['install', '--no-audit', '--no-fund'], {
-    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32',
+
+  const npm = resolveNpm();
+  say(`      Thieu: ${missing.join(', ')} - dang chay npm install (${npm.label}) ...`);
+
+  // npm co the tu goi lai 'node' cho script con, nen bo thu muc Node dang chay
+  // len dau PATH de no khong di tim Node he thong (may sach khong co).
+  const nodeDir = path.dirname(process.execPath);
+  const env = { ...process.env, PATH: `${nodeDir}${path.delimiter}${process.env.PATH ?? ''}` };
+
+  const res = spawnSync(npm.cmd, [...npm.args, 'install', '--no-audit', '--no-fund'], {
+    cwd: ROOT, stdio: 'inherit', shell: npm.shell, env,
   });
-  if (res.status !== 0) throw new Error('npm install that bai. Kiem tra ket noi mang roi chay lai INSTALL.bat.');
+  if (res.error || res.status !== 0) {
+    throw new Error(
+      `npm install that bai (${npm.label}${res.error ? `: ${res.error.message}` : `, exit ${res.status}`}). `
+      + 'Kiem tra ket noi mang roi chay lai INSTALL.bat.',
+    );
+  }
   say('      npm install xong.');
 }
 
@@ -273,9 +316,16 @@ async function main() {
   return 0;
 }
 
-main()
-  .then((code) => { process.exitCode = code; })
-  .catch((err) => {
-    process.stderr.write(`\n[LOI] ${err.message}\n\n`);
-    process.exitCode = 1;
-  });
+// Chi chay khi duoc goi truc tiep. Test import file nay de kiem tra resolveNpm(),
+// khong duoc keo theo ca qua trinh cai dat.
+const invokedDirectly = process.argv[1]
+  && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+
+if (invokedDirectly) {
+  main()
+    .then((code) => { process.exitCode = code; })
+    .catch((err) => {
+      process.stderr.write(`\n[LOI] ${err.message}\n\n`);
+      process.exitCode = 1;
+    });
+}

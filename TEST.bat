@@ -14,7 +14,11 @@ if not defined NODE_EXE (
 
 if not exist "node_modules\linkedom" (
   echo [i] Dang cai package dev ...
-  call npm install --no-audit --no-fund
+  if defined NPM_CLI (
+    "%NODE_EXE%" "%NPM_CLI%" install --no-audit --no-fund
+  ) else (
+    call npm install --no-audit --no-fund
+  )
 )
 
 echo.

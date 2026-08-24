@@ -18,6 +18,14 @@ if not defined NODE_EXE (
   )
 )
 
+rem 3. npm di kem chinh ban Node o tren.
+rem    Khong duoc goi thang "npm" va tin vao PATH: may sach chua cai Node thi PATH
+rem    khong co npm, va ban Node portable cung khong tu them minh vao PATH.
+set "NPM_CLI="
+set "NODE_DIR="
+if defined NODE_EXE for %%d in ("%NODE_EXE%") do set "NODE_DIR=%%~dpd"
+if defined NODE_DIR if exist "%NODE_DIR%node_modules\npm\bin\npm-cli.js" set "NPM_CLI=%NODE_DIR%node_modules\npm\bin\npm-cli.js"
+
 rem Runtime coi la san sang khi co du package + Chrome for Testing.
 if exist "%~dp0node_modules\playwright-core" (
   if exist "%~dp0runtime\chrome\chrome-win64\chrome.exe" set "RUNTIME_READY=1"
