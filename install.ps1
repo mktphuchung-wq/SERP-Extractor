@@ -53,6 +53,49 @@ function Write-Ok($text)   { Write-Host "  [OK] $text" -ForegroundColor Green }
 function Write-Warn2($text){ Write-Host "  [!]  $text" -ForegroundColor Yellow }
 
 # -----------------------------------------------------------------------------
+# Chay lenh ngoai (git, tar, node) mot cach an toan
+# -----------------------------------------------------------------------------
+# Windows PowerShell 5.1 bien MOI dong stderr cua lenh native thanh ErrorRecord.
+# Voi $ErrorActionPreference='Stop' o dau file, do la loi DUNG HAN - ngay ca khi
+# lenh tra ve exit code 0. Ma git ghi tien trinh binh thuong ra stderr:
+#
+#   git : From https://github.com/<owner>/<repo>
+#   + git pull --ff-only 2>&1 | Out-Null
+#   + FullyQualifiedErrorId : NativeCommandError
+#
+# tuc la mot lan "git pull" thanh cong van lam sap ca installer.
+#
+# Vi vay: khong bat exception quanh lenh native, ma ha $ErrorActionPreference
+# xuong 'Continue' trong luc chay roi xet $LASTEXITCODE - do moi la nguon su that
+# duy nhat ve viec lenh do thanh cong hay khong.
+function Invoke-Native([scriptblock]$Command) {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $Command } finally { $ErrorActionPreference = $prev }
+}
+
+# Nhu tren nhung NUOT toan bo dau ra va tra ve duoi dang chuoi, de goi y in lai
+# khi that bai. Dung cho git/tar - nhung lenh ghi tien trinh ra stderr.
+#
+# Ly do gop "2>&1" voi EAP='Continue': khi stdout cua PowerShell bi redirect
+# (chay tu script khac, tu CI, tu INSTALL.bat co pipe), stderr cua lenh native
+# hien thanh khoi chu do "FullyQualifiedErrorId : NativeCommandError" ngay ca luc
+# lenh chay dung. Doi chung thanh du lieu trong pipeline thi man hinh sach, va
+# ta chu dong in lai khi $LASTEXITCODE khac 0.
+function Invoke-NativeQuiet([scriptblock]$Command) {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $Command 2>&1 | ForEach-Object { $_.ToString() } }
+  finally { $ErrorActionPreference = $prev }
+}
+
+function Write-NativeLog($lines) {
+  foreach ($line in @($lines)) {
+    if ($line -and $line.Trim()) { Write-Host "       $line" -ForegroundColor DarkGray }
+  }
+}
+
+# -----------------------------------------------------------------------------
 # 1. Xac dinh thu muc cai dat
 # -----------------------------------------------------------------------------
 function Resolve-InstallDir {
@@ -78,8 +121,9 @@ function Expand-Zip($zipPath, $destDir) {
   # tar.exe co san tu Windows 10 1803 va nhanh hon Expand-Archive nhieu lan.
   $tar = Get-Command tar -ErrorAction SilentlyContinue
   if ($tar) {
-    & tar -xf $zipPath -C $destDir 2>$null
+    Invoke-NativeQuiet { & tar -xf $zipPath -C $destDir } | Out-Null
     if ($LASTEXITCODE -eq 0) { return }
+    Write-Warn2 'tar giai nen khong duoc - dung Expand-Archive.'
   }
   Expand-Archive -LiteralPath $zipPath -DestinationPath $destDir -Force
 }
@@ -159,8 +203,15 @@ function Get-Source($dir) {
       Write-Step 'Cap nhat tu GitHub (git pull)...'
       Push-Location $dir
       try {
-        git pull --ff-only 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok 'Da cap nhat.' } else { Write-Warn2 'Khong pull duoc - dung ban dang co.' }
+        # Khong redirect stderr cua git (xem ghi chu o Invoke-Native): de no in
+        # thang ra man hinh, va chi xet $LASTEXITCODE.
+        $log = Invoke-NativeQuiet { git pull --ff-only }
+        if ($LASTEXITCODE -eq 0) {
+          Write-Ok 'Da cap nhat.'
+        } else {
+          Write-Warn2 "Khong pull duoc (git exit $LASTEXITCODE) - dung ban dang co."
+          Write-NativeLog $log
+        }
       } finally { Pop-Location }
       return
     }
@@ -179,13 +230,29 @@ function Get-Source($dir) {
     Write-Step "git clone https://github.com/$Repo (nhanh $Branch)..."
     $url = "https://github.com/$Repo.git"
     if ($Token) { $url = "https://x-access-token:$Token@github.com/$Repo.git" }
-    git clone --depth 1 --branch $Branch $url $dir
+
+    # Clone ra thu muc TAM roi moi chep vao. Clone thang vao $dir se hong khi thu
+    # muc do da ton tai va khong rong ("destination path already exists and is not
+    # an empty directory") - hay gap khi lan cai truoc dut giua chung va da de lai
+    # runtime\ nang 230 MB. Chep vao thi giu nguyen nhung gi da tai.
+    $tmpClone = Join-Path $env:TEMP "serp-clone-$([Guid]::NewGuid().ToString('N'))"
+    $log = Invoke-NativeQuiet { git clone --depth 1 --branch $Branch $url $tmpClone }
+
     if ($LASTEXITCODE -eq 0) {
+      try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        # -Force de lay ca muc an, nhat la thu muc .git
+        Get-ChildItem -LiteralPath $tmpClone -Force | Copy-Item -Destination $dir -Recurse -Force
+      } finally {
+        Remove-Item $tmpClone -Recurse -Force -ErrorAction SilentlyContinue
+      }
       Write-Ok "Da tai ma nguon ve $dir"
       return
     }
-    Write-Warn2 'git clone that bai - chuyen sang tai ZIP.'
-    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+
+    Remove-Item $tmpClone -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Warn2 "git clone that bai (exit $LASTEXITCODE) - chuyen sang tai ZIP."
+    Write-NativeLog $log
   }
 
   # May trang chua cai Git: van chay duoc, chi can PowerShell co san cua Windows.
@@ -203,7 +270,7 @@ function Install-PortableNode($dir) {
   $nodeExe = Join-Path $nodeDir 'node.exe'
 
   if (Test-Path $nodeExe) {
-    $have = (& $nodeExe -v).TrimStart('v')
+    $have = (Invoke-NativeQuiet { & $nodeExe -v } | Select-Object -First 1).TrimStart('v')
     if ($have -eq $version) { Write-Ok "Node portable v$version da co."; return $nodeExe }
     Write-Step "Node portable doi phien ban: v$have -> v$version"
     Remove-Item $nodeDir -Recurse -Force
@@ -276,7 +343,7 @@ $nodeExe = Install-PortableNode $dir
 Write-Step 'Chay bootstrap (npm install + Chrome for Testing + kiem tra extension)...'
 Push-Location $dir
 try {
-  & $nodeExe 'scripts\bootstrap.mjs'
+  Invoke-Native { & $nodeExe 'scripts\bootstrap.mjs' }
   if ($LASTEXITCODE -ne 0) { throw "bootstrap that bai (exit $LASTEXITCODE)." }
 } finally {
   Pop-Location
