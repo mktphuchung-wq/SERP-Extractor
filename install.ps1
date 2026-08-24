@@ -5,11 +5,11 @@
 #  Cai dat tren may moi:
 #
 #    $env:SERP_TOKEN='<github token>'; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} `
-#      https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex
+#      https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 #
 #  Hoac neu may da co Git va da dang nhap GitHub:
 #
-#    irm https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex
+#    irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 #
 #  Hoac chay tu ban da tai ve san (offline / USB):
 #
@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # --- Sua hang nay thanh repo cua ban ----------------------------------------
-$DefaultRepo = '<OWNER>/<REPO>'
+$DefaultRepo = 'mktphuchung-wq/SERP-Extractor'
 # ----------------------------------------------------------------------------
 
 $Repo   = if ($env:SERP_REPO)   { $env:SERP_REPO }   else { $DefaultRepo }

@@ -32,13 +32,13 @@ Mỗi lần chạy tạo đúng **1 file Markdown + 2 file CSV** trong một th�
 Mở PowerShell rồi dán **một dòng**:
 
 ```powershell
-$env:SERP_TOKEN='<github token>'; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex
+$env:SERP_TOKEN='<github token>'; irm -Headers @{Authorization="Bearer $env:SERP_TOKEN"} https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 ```
 
 Nếu máy đã cài Git và đã đăng nhập GitHub thì bỏ được token:
 
 ```powershell
-irm https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/mktphuchung-wq/SERP-Extractor/main/install.ps1 | iex
 ```
 
 Nếu đã có sẵn thư mục tool (copy qua USB, ổ mạng, hoặc `git clone` tay) thì double-click **`INSTALL.bat`**.
