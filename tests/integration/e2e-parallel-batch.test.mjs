@@ -1,9 +1,13 @@
-/**
+﻿/**
  * E2E cuc bo cho hai tinh nang moi:
  *  1. Che do chay SONG SONG cho ket qua giong het che do TUAN TU (va nhanh hon).
  *  2. Nhieu tu khoa ngan cach bang ";" -> nhieu thu muc output rieng biet.
  *
  * Van chay tren server gia lap SERP o 127.0.0.1 + Chrome that qua CDP.
+ *
+ * Ghim engine: 'playwright' vi test tu dung san Chrome va dua cong debug cho
+ * tool - xem giai thich day du o dau file e2e-local.test.mjs.
+ *
  * Tu dong SKIP neu may khong co Chrome.
  */
 import test from 'node:test';
@@ -94,14 +98,14 @@ test('E2E: che do song song va tuan tu cho ket qua giong nhau', { skip }, async 
     const parallelConfig = buildConfig({ tmpDir: path.join(tmpDir, 'par'), profileDir, port, debugPort: 9335 });
     const startPar = Date.now();
     const parallel = await runWorkflow({
-      ...job, config: parallelConfig, options: { interactive: false, parallel: true },
+      ...job, config: parallelConfig, options: { interactive: false, parallel: true, engine: 'playwright' },
     });
     const parallelMs = Date.now() - startPar;
 
     const sequentialConfig = buildConfig({ tmpDir: path.join(tmpDir, 'seq'), profileDir, port, debugPort: 9335 });
     const startSeq = Date.now();
     const sequential = await runWorkflow({
-      ...job, config: sequentialConfig, options: { interactive: false, parallel: false },
+      ...job, config: sequentialConfig, options: { interactive: false, parallel: false, engine: 'playwright' },
     });
     const sequentialMs = Date.now() - startSeq;
 
@@ -156,7 +160,7 @@ test('E2E: nhieu tu khoa ngan cach bang ";" tao nhieu thu muc rieng', { skip }, 
     const results = [];
     for (const job of jobs) {
       results.push(await runWorkflow({
-        ...job, config, selectors, options: { interactive: false },
+        ...job, config, selectors, options: { interactive: false, engine: 'playwright' },
       }));
     }
 

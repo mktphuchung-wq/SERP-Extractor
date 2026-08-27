@@ -1,10 +1,17 @@
-/**
+﻿/**
  * E2E cuc bo: chay TOAN BO orchestrator (Step 1 -> Step 10) tren mot server
  * gia lap SERP chay o 127.0.0.1, dung Chrome that qua CDP.
  *
  * Muc dich: kiem chung day chuyen that (browser -> adapter -> normalizer ->
  * artifact writer -> quality gate -> manifest) ma khong dung toi Google.
  * Cac phan phu thuoc Google/extension that duoc kiem tra rieng khi co profile that.
+ *
+ * VI SAO GHIM engine: 'playwright':
+ * Cac test nay tu dung san mot Chrome rieng va dua cong debug cho tool. Do la
+ * mo hinh cua engine playwright. Engine bridge (mac dinh tu V2) lai doi mot
+ * trinh duyet DA CO NGUOI DUNG voi extension cau noi da cai, nen khong chay
+ * duoc trong moi truong test tu dong. Engine bridge duoc kiem chung rieng o
+ * tests/integration/bridge-engine.test.mjs.
  *
  * Tu dong SKIP neu may khong co Chrome.
  */
@@ -98,7 +105,7 @@ test('E2E cuc bo: mot run tao dung 1 MD + 2 CSV va qua quality gate', { skip }, 
       prompt: 'What are the main similarities and differences between Filipino and Samoan people?',
       config,
       selectors: loadSelectors(),
-      options: { interactive: false },
+      options: { interactive: false, engine: 'playwright' },
     });
 
     // --- Thu muc ket qua: dung 3 file, dung ten -----------------------------
@@ -200,11 +207,11 @@ test('E2E cuc bo: chay lai cung keyword thi tao thu muc timestamp, khong ghi de'
 
     const first = await runWorkflow({
       keyword: 'Filipino vs Samoan', prompt: 'Prompt one.', config, selectors,
-      options: { interactive: false },
+      options: { interactive: false, engine: 'playwright' },
     });
     const second = await runWorkflow({
       keyword: 'Filipino vs Samoan', prompt: 'Prompt two.', config, selectors,
-      options: { interactive: false },
+      options: { interactive: false, engine: 'playwright' },
     });
 
     assert.notEqual(first.outputDir, second.outputDir);

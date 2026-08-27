@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "SERP Extractor Bridge",
+  "version": "2.0.0",
+  "description": "Mo tab thu thap SERP ngay trong phien lam viec hien tai va noi voi tool SERP Extractor dang chay tren may.",
+  "minimum_chrome_version": "116",
+  "_comment_key": "Truong 'key' ghim extension id thanh jcacglefgleiajjchmkgjmjkplekgloi tren MOI may. Neu khong co no, Chrome sinh id theo duong dan cai dat, va trang ghep noi (chrome.runtime.sendMessage toi mot id cu the) se khong tim thay extension. KHONG DUOC doi gia tri nay.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnbicW7/8plF0n4R/ydWbilpN15S/gUURpIFl7q3Pii3WvsjhJzFBPZRlGbz2BuLMLyllRuekQfR12dZ1gT+iopLezSsXVA5X9pFotyZzAFLTBE2zI+AehGxGjegsMbD16pJJy+Pirm4TxmZjHQFZ5vHK26M15rvXMVZ0P4/eISCtSD7F5qobAuGfUilEUvJOC1EfeGBwJVgj6QNcT81PfV2AMDaG9RAb5TZ23Eiift0UDNOyIVJFtRSG4z2eofP5p1tVcz38GZJ+3tOOdt4w+3hyheGnat9AfKmv7luZrhBcDDnjGaxE5HpnkKsWWyHzeTG2UfluyMBGSwUHwBzJaQIDAQAB",
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1/*"
+    ]
+  },
+  "permissions": [
+    "debugger",
+    "tabs",
+    "windows",
+    "downloads",
+    "storage",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://www.google.com/*",
+    "https://google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "SERP Extractor Bridge",
+    "default_popup": "popup.html"
+  }
+}

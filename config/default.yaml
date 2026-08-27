@@ -2,6 +2,24 @@
 # KHONG luu password / cookie / token trong file nay.
 
 browser:
+  # Engine dieu khien trinh duyet.
+  #
+  # bridge (mac dinh, kien truc V2)
+  #   Mo tab NGAY TRONG cua so Chrome ma ban dang dung. Khong khoi dong tien
+  #   trinh trinh duyet nao. Nho vay phien dang nhap Google/Ahrefs va cac
+  #   extension ban da cai deu dung duoc ngay - khong phai dang nhap lai.
+  #   Dieu khien bang chrome.debugger thong qua extension trong thu muc
+  #   extension\ (cai mot lan bang Load unpacked).
+  #   Chrome se hien thanh vang "Extension ... dang go loi trinh duyet nay"
+  #   tren tab dang lam viec. Do la co che bao ve cua Chrome, khong tat duoc.
+  #
+  # playwright (kien truc V1)
+  #   Khoi dong Chrome for Testing rieng voi profile rieng. Khong dung duoc
+  #   phien dang nhap cua ban, nhung chay duoc khi khong co ai ngoi truoc may.
+  #
+  # Cac khoa browser.* con lai o duoi CHI ap dung cho engine playwright.
+  engine: bridge
+
   # auto    : uu tien Chrome for Testing trong runtime\chrome, thieu thi dung Chrome he thong
   # bundled : bat buoc Chrome for Testing (bao loi neu chua tai) - dung khi muon chac chan
   #           3 extension trong vendor\extensions duoc nap
@@ -35,6 +53,16 @@ browser:
   viewport:
     width: 1440
     height: 1000
+
+# Cau noi giua tool va extension trong trinh duyet (chi dung cho engine bridge).
+bridge:
+  # 0 = de he dieu hanh chon mot cong trong. Chi bind 127.0.0.1, khong bao gio
+  # nhan ket noi tu may khac. Moi lan chay dung mot token ngau nhien rieng.
+  port: 0
+  # Thoi gian cho nguoi dung cai/bat extension roi ghep noi.
+  pair_timeout_ms: 120000
+  # Thoi gian cho mot lenh CDP tra ve.
+  call_timeout_ms: 30000
 
 search:
   scheme: 'https'                       # chi doi khi test cuc bo

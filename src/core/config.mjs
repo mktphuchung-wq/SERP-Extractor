@@ -102,6 +102,16 @@ function validateConfig(config) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     problems.push('browser.remote_debugging_port phai la so nguyen 1024-65535');
   }
+  const engine = config?.browser?.engine ?? 'bridge';
+  if (!['bridge', 'playwright'].includes(engine)) {
+    problems.push('browser.engine phai la bridge | playwright');
+  }
+  const bridgePort = config?.bridge?.port;
+  // 0 hop le: de he dieu hanh chon cong trong.
+  if (bridgePort != null && (!Number.isInteger(bridgePort)
+    || bridgePort < 0 || bridgePort > 65535 || (bridgePort > 0 && bridgePort < 1024))) {
+    problems.push('bridge.port phai la 0 (tu chon) hoac so nguyen 1024-65535');
+  }
   if (!['timestamp', 'fail', 'overwrite'].includes(config?.output?.on_conflict)) {
     problems.push('output.on_conflict phai la timestamp | fail | overwrite');
   }

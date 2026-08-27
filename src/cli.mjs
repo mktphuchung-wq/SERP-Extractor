@@ -31,14 +31,15 @@ Cach dung:
   RUN.bat                                   (che do hoi dap)
 
 Tham so:
+  --engine <ten>        bridge (mac dinh) : mo tab ngay trong Chrome ban dang dung,
+                                            giu nguyen phien dang nhap va extension
+                        playwright        : khoi dong Chrome for Testing rieng
   --config <file>       Dung file cau hinh khac (mac dinh config/default.yaml)
   --overwrite           Cho phep ghi de thu muc ket qua da ton tai (co backup)
   --sequential          Tat che do chay song song (chay lan luot tung buoc)
   --parallel            Bat che do chay song song (mac dinh da bat)
   --no-open             Khong tu mo file ket qua bang Notepad
   --capture-dom[=a,b]   Chup DOM that cua tung block ra logs\<run_id>\dom-snapshots\
-                        de soan selector tu bang chung (kem bao cao de xuat)
-                        de soan selector tu bang chung (kem bao cao de xuat)
                         de soan selector tu bang chung (kem bao cao de xuat)
   --setup               Chay rieng phan cai dat lan dau roi thoat
   --skip-setup          Bo qua buoc kiem tra cai dat
@@ -78,6 +79,8 @@ export function parseArgs(argv) {
     }
     else if (arg === '--config') { out.options.configPath = argv[i + 1]; i += 1; }
     else if (arg.startsWith('--config=')) out.options.configPath = arg.slice('--config='.length);
+    else if (arg === '--engine') { out.options.engine = argv[i + 1]; i += 1; }
+    else if (arg.startsWith('--engine=')) out.options.engine = arg.slice('--engine='.length);
     else if (arg.startsWith('--')) out.options.unknown = (out.options.unknown ?? []).concat(arg);
     else out.positional.push(arg);
   }
@@ -145,17 +148,23 @@ async function main() {
     (keyword) => resolvePrompt('', keyword, config),
   );
 
-  // Cong setup: lan dau tu dong cai dat, cac lan sau im lang di qua
-  try {
-    await ensureReady(config, {
-      interactive,
-      skipSetup: options.skipSetup,
-      requireExtensions: options.requireExtensions,
-      verbose: options.verbose,
-    });
-  } catch (err) {
-    process.stderr.write(`\n${describeError(err)}\n`);
-    return toExitCode(err);
+  // Cong setup chi co y nghia voi engine playwright: no kiem tra 3 extension
+  // trong profile AUTOMATION. Engine bridge lam viec tren profile that cua
+  // nguoi dung, noi ho da tu cai extension va tu dang nhap, nen khong co gi
+  // de kiem tra - va khong duoc phep doi hoi ho cai lai vao mot profile khac.
+  const engineName = options.engine ?? config.browser?.engine ?? 'bridge';
+  if (engineName !== 'bridge') {
+    try {
+      await ensureReady(config, {
+        interactive,
+        skipSetup: options.skipSetup,
+        requireExtensions: options.requireExtensions,
+        verbose: options.verbose,
+      });
+    } catch (err) {
+      process.stderr.write(`\n${describeError(err)}\n`);
+      return toExitCode(err);
+    }
   }
 
   const selectors = loadSelectors();
@@ -167,6 +176,7 @@ async function main() {
     parallel: options.parallel,
     captureDom: options.captureDom,
     openResult: options.openResult,
+    engine: options.engine,
     interactive,
   };
 

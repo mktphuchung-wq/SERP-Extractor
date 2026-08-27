@@ -23,14 +23,11 @@ import { withRetry, softly, humanDelay, sleep } from './core/retry.mjs';
 import { waitForEnter, isInteractive } from './core/prompt.mjs';
 import { Mutex, NO_LOCK } from './core/mutex.mjs';
 
-import { ensureChrome } from './browser/chrome-launcher.mjs';
-import {
-  connectCdp, primaryContext, acquirePage, grantClipboard, disconnect, verifyAttachedProfile,
-} from './browser/cdp-connector.mjs';
+import { startEngine, ENGINES } from './engine/index.mjs';
 import { discoverEffective } from './browser/bundled-extensions.mjs';
 import { createCapture, NO_CAPTURE } from './browser/dom-capture.mjs';
 
-import { buildSearchUrl, openSerp, verifySerpUrl, searchOrigin } from './adapters/google-search.mjs';
+import { buildSearchUrl, openSerp, verifySerpUrl } from './adapters/google-search.mjs';
 import { collectAiAnswer } from './adapters/ai-mode.mjs';
 import { collectKeywordIdeas, verifyUsMarket } from './adapters/ahrefs-widget.mjs';
 import { collectPaa } from './adapters/paa.mjs';
@@ -121,9 +118,9 @@ export async function runWorkflow(args) {
     logger.info(`Che do --capture-dom: dang bat${captureBlocks.length ? ` (${captureBlocks.join(', ')})` : ' (tat ca block)'}`);
   }
 
-  let browser = null;
+  let engineSession = null;
   try {
-    await stepStartBrowser(state, (b) => { browser = b; }, options);
+    await stepStartBrowser(state, (s) => { engineSession = s; }, options);
     await stepOpenSerp(state);
 
     if (parallel) {
@@ -157,6 +154,7 @@ export async function runWorkflow(args) {
       errors: [{ code: err instanceof AppError ? err.code : 'UNEXPECTED_ERROR', message: err.message }],
       extensions: summariseExtensions(state.extensions),
       chromeVersion: state.chromeVersion,
+      engine: state.engine ?? null,
     }));
     notifyFailure(config, {
       keyword,
@@ -172,7 +170,9 @@ export async function runWorkflow(args) {
       if (reportPath) announceCapture(state, reportPath, options);
     } catch { /* khong lam hong run */ }
     await closeExtraTabs(state);
-    if (browser) await disconnect(browser, logger);
+    // close() cua engine chi dong nhung tab do tool mo va ngat cau noi.
+    // Voi engine bridge, trinh duyet cua nguoi dung KHONG bi dong.
+    if (engineSession) await engineSession.close().catch(() => {});
     await logger.close();
   }
 }
@@ -184,26 +184,32 @@ function resolveParallelMode(config, options) {
 }
 
 /* ------------------------------------------------------------------ Step 1 */
-async function stepStartBrowser(state, setBrowser, options) {
+async function stepStartBrowser(state, setEngine, options) {
   const { config, logger } = state;
-  logger.step(1, state.totalSteps, 'Khoi dong Chrome profile rieng...');
+  const useBridge = (options.engine ?? config.browser?.engine ?? ENGINES.BRIDGE) === ENGINES.BRIDGE;
+  logger.step(1, state.totalSteps, useBridge
+    ? 'Ket noi vao trinh duyet dang mo cua ban...'
+    : 'Khoi dong Chrome profile rieng...');
 
-  const chrome = await ensureChrome(config, logger);
-  state.chromeVersion = chrome.version?.Browser ?? null;
+  const session = await startEngine({ config, logger, options });
+  setEngine(session);
 
-  const browser = await connectCdp({ port: chrome.port, logger });
-  setBrowser(browser);
-  const context = primaryContext(browser);
-  state.context = context;
+  state.engine = session.engine;
+  state.chromeVersion = session.chromeVersion;
+  state.context = session.context;
+  state.page = session.page;
 
-  // Bat buoc: dam bao dang lam viec tren profile automation, khong phai profile ca nhan
-  if (config.browser?.verify_profile !== false) {
-    await verifyAttachedProfile(context, config.browser.user_data_dir, logger);
+  // Engine bridge lam viec tren chinh profile cua nguoi dung, nen cac extension
+  // ho da cai (Ahrefs, SEO SERP, Suggestion Extractor) co san va dang dang nhap.
+  // Engine playwright thi phai dua vao ban dong goi trong vendor\extensions.
+  if (session.engine === ENGINES.BRIDGE) {
+    state.extensions = {};
+    logger.info(
+      'Dang dung profile that cua ban: cac extension da cai va phien dang nhap '
+      + '(Google, Ahrefs) deu dung duoc ngay.',
+    );
+    return;
   }
-
-  state.page = await acquirePage(context, { viewport: config.browser.viewport });
-
-  await grantClipboard(context, searchOrigin(config), logger);
 
   state.extensions = discoverEffective(config);
   for (const [key, meta] of Object.entries(state.extensions)) {
@@ -699,6 +705,7 @@ async function stepWriteAndValidate(state, options) {
     warnings: logger.warnings,
     extensions: summariseExtensions(state.extensions),
     chromeVersion: state.chromeVersion,
+    engine: state.engine ?? null,
     mode: state.parallel ? 'parallel' : 'sequential',
     severity: bySeverity,
   }));

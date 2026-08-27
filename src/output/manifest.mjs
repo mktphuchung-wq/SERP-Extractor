@@ -41,6 +41,11 @@ export function buildManifest(data) {
       name: 'auto-serp-research',
       node: process.version,
       chrome: data.chromeVersion ?? null,
+      // 'bridge'  = chay trong trinh duyet cua nguoi dung
+      // 'playwright' = chay tren Chrome for Testing voi profile rieng
+      // Ghi lai vi hai duong nay cho ket qua khac nhau: engine bridge dung
+      // phien dang nhap that nen co du lieu Ahrefs, engine playwright thi khong.
+      engine: data.engine ?? null,
       extensions: data.extensions ?? {},
     },
   };
