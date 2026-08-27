@@ -3,7 +3,7 @@
  *
  * Chi phai ho tro dung phan bo mat API ma src/adapters/ thuc su goi:
  *   first() nth() count() waitFor() click() fill() press() pressSequentially()
- *   type() innerText() textContent() locator() getByRole() getByText()
+ *   type() innerText() textContent() inputValue() locator() getByRole() getByText()
  *   elementHandle() page()
  *
  * Su khac biet quan trong so voi Playwright: o day KHONG co auto-wait ngam.
@@ -14,7 +14,7 @@
 import { AppError } from '../core/errors.mjs';
 import { composeExtractor } from '../browser/page-eval.mjs';
 import {
-  resolveSpec, describeNode, nodeTextContent, nodeInnerText, fillNode, focusNode,
+  resolveSpec, describeNode, nodeTextContent, nodeInnerText, fillNode, focusNode, valueOfNode,
 } from './selector-resolver.mjs';
 
 const RESOLVE_SRC = composeExtractor(resolveSpec).toString();
@@ -23,6 +23,7 @@ const TEXT_SRC = composeExtractor(nodeTextContent).toString();
 const INNER_TEXT_SRC = composeExtractor(nodeInnerText).toString();
 const FILL_SRC = composeExtractor(fillNode).toString();
 const FOCUS_SRC = composeExtractor(focusNode).toString();
+const VALUE_SRC = composeExtractor(valueOfNode).toString();
 
 /** Goi mot ham da serialize voi doi so JSON. */
 function callWith(fnSource, arg) {
@@ -155,6 +156,14 @@ export class RemoteLocator {
     return session.evaluate(callWith(INNER_TEXT_SRC, { index }), {
       timeout: options.timeout ?? 30000,
     });
+  }
+
+  /** Cung ten va cung y nghia voi Locator.inputValue() cua Playwright. */
+  async inputValue() {
+    const index = await this._requireNode('doc gia tri o nhap');
+    const session = await this._page._session();
+    const value = await session.evaluate(callWith(VALUE_SRC, { index }));
+    return typeof value === 'string' ? value : '';
   }
 
   /**

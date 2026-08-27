@@ -69,6 +69,54 @@ test('hoi quy: embedded target AI chi khop www.google search, khong khop Search 
   assert.equal(re.test('https://search.google.com/search-console/index?resource_id=x'), false);
 });
 
+/* ------------------------------- Bam nham control cua UI khac (2026-08-27) --
+ * Keyword "Scottish Girl Names". Hai run lien tiep hong vi adapter tim nut tren
+ * TOAN TRANG roi bam trung nut cua UI khac:
+ *   run 20260827-153106 - `button[type='submit']` khop nut Search cua Google;
+ *   run 20260827-152533 - bam mot nut Copy khong ghi gi, roi doc lai noi dung
+ *                         PAA con sot trong clipboard -> lot vao muc AI Mode.
+ */
+
+test('hoi quy: submit cua AI khong duoc dung button[type=submit] tren toan trang', () => {
+  // Tren SERP that, phan tu duy nhat khop la nut Search cua Google:
+  //   <button jsname="Tg7LZd" aria-label="Search" type="submit">
+  const css = aiSel.submit.filter((spec) => spec.type === 'css').map((spec) => spec.css);
+  assert.ok(
+    !css.some((value) => /type\s*=\s*['"]?submit/i.test(value)),
+    `selector submit khong duoc quet button[type=submit]: ${css.join(' | ')}`,
+  );
+});
+
+test('hoi quy: control_exclude khai bao du nut Search cua Google va thanh Ahrefs', () => {
+  const exclude = aiSel.control_exclude ?? [];
+  assert.ok(exclude.includes('#tsf'), 'phai chan form tim kiem cua Google');
+  assert.ok(exclude.includes('.ah_tb-btn-link'), 'phai chan nut cua thanh Ahrefs Toolbar');
+  assert.ok(Number(aiSel.container_up) > 0, 'phai khai bao container_up de khoanh vung khoi prompt');
+});
+
+test('hoi quy: isExcludedControl phan biet nut cua AI voi nut cua UI khac', () => {
+  const document = loadFixtureDocument('ai-overview-submit-traps.html');
+  const exclude = { selectors: aiSel.control_exclude };
+  const inAi = document.getElementById('old-overview-copy');
+  const googleSearch = document.getElementById('search-submit');
+  const ahrefsCopy = document.getElementById('ahrefs-copy');
+
+  assert.equal(aiInternals.isExcludedControl(inAi, exclude), false, 'nut trong AI Overview thi dung duoc');
+  assert.equal(aiInternals.isExcludedControl(googleSearch, exclude), true, 'nut Search cua Google phai bi loai');
+  assert.equal(aiInternals.isExcludedControl(ahrefsCopy, exclude), true, 'nut Copy cua Ahrefs phai bi loai');
+  // Khong doc duoc phan tu thi phai coi la KHONG dung duoc, khong duoc bam bua.
+  assert.equal(aiInternals.isExcludedControl(null, exclude), true);
+});
+
+test('hoi quy: khoanh vung khoi prompt khong voi toi form tim kiem cua Google', () => {
+  const document = loadFixtureDocument('ai-overview-submit-traps.html');
+  const box = document.getElementById('promptbox');
+  let node = box;
+  for (let i = 0; i < Number(aiSel.container_up); i += 1) node = node.parentNode ?? node;
+  assert.equal(node.querySelector('#search-submit'), null, 'vung prompt khong duoc chua nut Search');
+  assert.ok(node.querySelector('#send'), 'vung prompt phai chua nut gui that');
+});
+
 /* -------------------------------------------------- 1. Nut Delete trong goi y */
 
 function readSuggestions(fixture) {

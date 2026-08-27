@@ -119,6 +119,106 @@ test('browser: AI Overview thao tac Show more -> Paste Prompt -> Load -> Copy', 
   });
 });
 
+/**
+ * Hoi quy run that 2026-08-27, keyword "Scottish Girl Names".
+ * Fixture dung lai hai cai bay da lam hong hai run lien tiep - xem chu thich
+ * dau file tests/fixtures/ai-overview-submit-traps.html.
+ */
+test('browser: khong bam nham nut Search cua Google va nut Copy cua Ahrefs', { skip }, async () => {
+  await withPage(async (page) => {
+    await page.goto(fixtureUrl('ai-overview-submit-traps.html'));
+    page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
+
+    const result = await collectAiAnswer({
+      page, config: AI_CONFIG, selectors, logger,
+      keyword: 'Scottish Girl Names',
+      prompt: 'Analyze the search intent behind this keyword.',
+    });
+
+    const clicked = await page.evaluate(() => window.__clicked);
+    assert.ok(
+      !clicked.includes('search-submit'),
+      `khong duoc bam nut Search cua Google (da bam: ${clicked.join(', ')})`,
+    );
+    assert.ok(
+      !clicked.includes('ahrefs-copy'),
+      `khong duoc bam nut Copy cua thanh Ahrefs (da bam: ${clicked.join(', ')})`,
+    );
+    assert.ok(clicked.includes('send'), 'phai bam dung nut gui cua o prompt');
+    assert.ok(clicked.includes('answer-copy'), 'phai bam dung nut Copy cua cau tra loi');
+
+    assert.equal(result.source, 'google_ai_overview_clipboard');
+    assert.ok(result.markdown.includes('### Scottish girl names'));
+    assert.ok(
+      !result.markdown.includes('What is the prettiest'),
+      'khong duoc lay noi dung PAA con sot trong clipboard',
+    );
+    assert.deepEqual(result.warnings, []);
+  });
+});
+
+test('browser: answer khong co nut Copy thi bao thieu, khong bam nut Copy cua Ahrefs', { skip }, async () => {
+  await withPage(async (page) => {
+    // #nocopy: prompt gui duoc nhung cau tra loi khong kem nut Copy - dung tinh
+    // huong cuoi cua run 20260827-153106. Code cu roi xuong selector
+    // `text=^copy$` va bam trung nut Copy cua thanh Ahrefs o cuoi trang.
+    await page.goto(`${fixtureUrl('ai-overview-submit-traps.html')}#nocopy`);
+    page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
+
+    const result = await collectAiAnswer({
+      page,
+      config: { ai: { ...AI_CONFIG.ai, response_timeout_ms: 3000 } },
+      selectors,
+      logger,
+      keyword: 'Scottish Girl Names',
+      prompt: 'Analyze the search intent behind this keyword.',
+    });
+
+    const clicked = await page.evaluate(() => window.__clicked);
+    assert.ok(clicked.includes('send'), 'prompt van phai duoc gui di');
+    assert.ok(
+      !clicked.includes('ahrefs-copy'),
+      `khong duoc bam nut Copy cua thanh Ahrefs (da bam: ${clicked.join(', ')})`,
+    );
+    assert.ok(result.warnings.includes('AI_RESPONSE_TIMEOUT'));
+    assert.equal(result.source, 'none');
+    assert.ok(
+      !result.markdown.includes('What is the prettiest'),
+      'khong duoc lay noi dung PAA con sot trong clipboard',
+    );
+  });
+});
+
+test('browser: clipboard khong doi sau khi bam Copy thi bao loi, khong lay noi dung cu', { skip }, async () => {
+  await withPage(async (page) => {
+    await page.goto(fixtureUrl('ai-overview-submit-traps.html'));
+    // Mo phong dung tinh huong run 20260827-152533: nut Copy khong ghi gi moi,
+    // clipboard van giu nguyen noi dung cua buoc PAA truoc do.
+    await page.evaluate(() => {
+      window.__copyFrozen = window.__copiedText;
+      Object.defineProperty(window, '__copiedText', {
+        get: () => window.__copyFrozen,
+        set: () => {},
+      });
+    });
+    page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
+
+    const result = await collectAiAnswer({
+      page, config: { ai: { ...AI_CONFIG.ai, clipboard_timeout_ms: 1500 } }, selectors, logger,
+      keyword: 'Scottish Girl Names',
+      prompt: 'Analyze the search intent behind this keyword.',
+    });
+
+    assert.ok(result.warnings.includes('AI_COPY_STALE_CLIPBOARD'));
+    assert.equal(result.source, 'none');
+    assert.ok(
+      !result.markdown.includes('What is the prettiest'),
+      'noi dung cu cua buoc PAA khong duoc lot vao muc AI Mode',
+    );
+    assert.match(result.markdown, /^>/, 'phai la blockquote canh bao');
+  });
+});
+
 test('browser: khong co AI Overview thi ghi canh bao, khong bia noi dung', { skip }, async () => {
   await withPage(async (page) => {
     await page.goto(fixtureUrl('serp-page2.html'));

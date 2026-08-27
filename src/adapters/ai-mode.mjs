@@ -11,6 +11,7 @@ import { createMachine } from '../core/state-machine.mjs';
 import {
   firstVisible, anyPresent, buildLocator, describeSpec,
 } from '../browser/locator.mjs';
+import { runExtractorOnLocator } from '../browser/page-eval.mjs';
 import { normalizeMarkdownBlock, toRegExp } from '../core/text.mjs';
 import { sleep } from '../core/retry.mjs';
 import { WARNING_CODES } from '../core/errors.mjs';
@@ -22,6 +23,10 @@ export const AI_TIMEOUT_NOTE =
   '> AI Overview khong tra loi xong trong thoi gian cho.';
 export const AI_UNAVAILABLE_NOTE =
   '> Khong thao tac duoc AI Overview tren trang SERP nay.';
+export const AI_SUBMIT_FAILED_NOTE =
+  '> Da dan prompt nhung khong gui duoc cho AI Overview.';
+export const AI_STALE_CLIPBOARD_NOTE =
+  '> Nut Copy khong dua duoc cau tra loi moi vao clipboard.';
 
 /**
  * @param {{page:object, config:object, selectors:object, logger:object, keyword:string, prompt:string, lock?:object}} args
@@ -120,26 +125,32 @@ export async function collectAiAnswer(args) {
             // AI Overview goc da co san mot nut "Copy text". Ghi baseline
             // truoc khi submit de sau do chi nhan nut Copy MOI cua answer,
             // khong copy nham noi dung overview cu.
-            const copyCountsBefore = await countCopyButtons(page, promptSel);
-            logger?.debug(`So nut Copy truoc khi Load: ${copyCountsBefore.join(',')}`);
+            const baseline = {
+              copy: await countCopyButtons(page, promptSel),
+              response: await countResponseBlocks(page, promptSel),
+            };
+            logger?.debug(`So nut Copy truoc khi gui: ${baseline.copy.join(',')}`);
 
-            const load = await firstVisible(ctx.surface, promptSel.submit, {
-              timeout: 8000, perSpec: 1600, logger, block: 'ai_prompt_box.submit',
-            });
-            if (!load) return false;
-            await load.locator.click({ timeout: 5000 });
-            logger?.info('Da bam "Load" de gui prompt.');
-            return { copyCountsBefore };
+            const sent = await sendPrompt({ page, input: ctx.input, promptSel, logger, baseline });
+            return { baseline, sent };
           });
 
-          if (!submitted) {
-            logger?.warn('Khong tim thay nut "Load" sau khi dan prompt.', {
-              code: WARNING_CODES.AI_MODE_UNAVAILABLE,
-            });
-            ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
-            return 'Missing';
+          if (!submitted.sent.ok) {
+            const { reason } = submitted.sent;
+            logger?.warn(
+              reason === 'RELOADED'
+                ? 'Bam nham control lam trang tai lai; prompt da mat.'
+                : 'Da dan prompt nhung khong gui di duoc (khong tim thay nut gui hop le).',
+              { code: WARNING_CODES.AI_PROMPT_SUBMIT_FAILED, reason },
+            );
+            ctx.warnings.push(WARNING_CODES.AI_PROMPT_SUBMIT_FAILED);
+            await logger?.screenshot(page, 'ai-overview-submit-that-bai');
+            return { to: 'Missing', note: AI_SUBMIT_FAILED_NOTE };
           }
-          return { to: 'Submitted', copyCountsBefore: submitted.copyCountsBefore };
+          logger?.info(
+            `Da xac minh prompt duoc gui (${submitted.sent.via} -> ${submitted.sent.signal}).`,
+          );
+          return { to: 'Submitted', copyCountsBefore: submitted.baseline.copy };
         },
       },
 
@@ -186,17 +197,43 @@ export async function collectAiAnswer(args) {
 
       CopyReady: {
         async run(ctx) {
+          const minChars = Math.max(1, aiCfg.min_response_chars ?? 40);
           const copied = await lock.run(async () => {
+            // Phai biet clipboard TRUOC khi bam. Buoc Ahrefs ngay truoc do da de
+            // lai noi dung trong clipboard; khong so sanh thi noi dung cu di
+            // thang vao muc AI Mode ma van trong nhu thanh cong
+            // (run that 20260827-152533: 4 cau PAA lot vao "## AI Mode").
+            //
+            // Uu tien dat SAN mot chuoi danh dau: khi do "clipboard doi" la bang
+            // chung chac chan nut Copy da ghi, ke ca luc cau tra loi tinh co
+            // trung y het noi dung cu. Khong ghi duoc thi doc lai lam moc so sanh.
+            const sentinel = await poisonClipboard(page);
+            const before = sentinel ?? (await readClipboardText(page));
             await ctx.copy.click({ timeout: 5000 });
             logger?.info('Da bam "Copy" cua AI Overview.');
-            await sleep(600);
-            return readClipboardText(page);
-          });
-          const markdown = normalizeMarkdownBlock(copied);
-          if (!markdown || normalizeMarkdownBlock(markdown) === normalizeMarkdownBlock(prompt)) {
-            logger?.warn('Nut Copy khong dua cau tra loi hop le vao clipboard.', {
-              code: WARNING_CODES.AI_RESPONSE_TIMEOUT,
+            return waitForClipboardChange(page, before, {
+              timeoutMs: aiCfg.clipboard_timeout_ms ?? 5000,
+              pollMs: aiCfg.clipboard_poll_ms ?? 300,
             });
+          });
+
+          if (!copied.changed) {
+            logger?.warn(
+              'Bam Copy nhung clipboard khong doi - noi dung dang giu la cua buoc truoc, khong dung.',
+              { code: WARNING_CODES.AI_COPY_STALE_CLIPBOARD },
+            );
+            ctx.warnings.push(WARNING_CODES.AI_COPY_STALE_CLIPBOARD);
+            return { to: 'Missing', note: AI_STALE_CLIPBOARD_NOTE };
+          }
+
+          const markdown = normalizeMarkdownBlock(copied.text);
+          const isEchoOfPrompt = normalizeMarkdownBlock(markdown) === normalizeMarkdownBlock(prompt);
+          if (!markdown || isEchoOfPrompt || markdown.length < minChars) {
+            logger?.warn(
+              `Nut Copy khong dua cau tra loi hop le vao clipboard (${markdown.length} ky tu`
+              + `${isEchoOfPrompt ? ', trung voi prompt' : ''}).`,
+              { code: WARNING_CODES.AI_RESPONSE_TIMEOUT },
+            );
             ctx.warnings.push(WARNING_CODES.AI_RESPONSE_TIMEOUT);
             return { to: 'Missing', note: AI_TIMEOUT_NOTE };
           }
@@ -211,8 +248,15 @@ export async function collectAiAnswer(args) {
             ?? (ctx.warnings.includes(WARNING_CODES.AI_MODE_UNAVAILABLE)
               ? AI_UNAVAILABLE_NOTE
               : AI_MISSING_NOTE);
-          if (!ctx.warnings.includes(WARNING_CODES.AI_MODE_UNAVAILABLE)
-            && !ctx.warnings.includes(WARNING_CODES.AI_RESPONSE_TIMEOUT)) {
+          // Chi bao "khong tim thay AI Overview" khi that su khong co ly do nao
+          // ro rang hon. Cac ma duoi day da noi chinh xac hong o dau roi.
+          const explained = [
+            WARNING_CODES.AI_MODE_UNAVAILABLE,
+            WARNING_CODES.AI_RESPONSE_TIMEOUT,
+            WARNING_CODES.AI_PROMPT_SUBMIT_FAILED,
+            WARNING_CODES.AI_COPY_STALE_CLIPBOARD,
+          ];
+          if (!explained.some((code) => ctx.warnings.includes(code))) {
             ctx.warnings.push(WARNING_CODES.AI_OVERVIEW_NOT_FOUND);
           }
           return { to: 'Captured', markdown: note, source: 'none' };
@@ -320,10 +364,18 @@ async function currentUrl(page) {
   return page.url();
 }
 
-/** Cho nut Copy cua cau tra loi xuat hien sau khi bam Load. */
+/**
+ * Cho nut Copy cua cau tra loi xuat hien sau khi gui prompt.
+ *
+ * Hai rang buoc, thieu cai nao cung tung ra bug that:
+ *   1. So luong phai NHIEU HON baseline -> khong bam lai nut Copy cua overview cu.
+ *   2. Ung vien phai khong nam trong khoi UI khac (control_exclude) -> khong bam
+ *      nut "Copy" cua thanh Ahrefs Toolbar (run that 20260827-152533).
+ */
 async function waitForCopyButton(scope, promptSel, opts) {
   const deadline = Date.now() + opts.timeoutMs;
   const beforeCounts = opts.beforeCounts ?? [];
+  const exclude = promptSel.control_exclude ?? [];
   while (Date.now() < deadline) {
     for (const [index, spec] of (promptSel.copy_button ?? []).entries()) {
       try {
@@ -331,14 +383,281 @@ async function waitForCopyButton(scope, promptSel, opts) {
         if (!all) continue;
         const count = await all.count();
         if (count <= (beforeCounts[index] ?? 0)) continue;
-        const locator = all.nth(count - 1);
-        await locator.waitFor({ state: 'visible', timeout: Math.min(opts.pollMs, 1000) });
-        return { locator, spec };
+        // Nut cua answer moi nam cuoi cay DOM; duyet nguoc de gap no truoc,
+        // va bo qua ung vien thuoc ve UI khac thay vi dung han.
+        for (let i = count - 1; i >= 0; i -= 1) {
+          const candidate = all.nth(i);
+          try {
+            await candidate.waitFor({ state: 'visible', timeout: Math.min(opts.pollMs, 1000) });
+          } catch { continue; }
+          // eslint-disable-next-line no-await-in-loop
+          if (await isForeignControl(candidate, exclude)) continue;
+          return { locator: candidate, spec };
+        }
       } catch { /* cau tra loi chua san sang */ }
     }
     await sleep(opts.pollMs);
   }
   return null;
+}
+
+/**
+ * Phan tu co nam trong mot khoi UI KHONG phai cua AI Overview khong?
+ *
+ * Ham thuan, chay trong trang. Xuat khau de test rieng bang linkedom.
+ * @param {Element} root
+ * @param {{selectors:string[]}} options
+ */
+export function isExcludedControl(root, options) {
+  if (!root || typeof root.closest !== 'function') return true;
+  const list = (options && options.selectors) || [];
+  for (let i = 0; i < list.length; i += 1) {
+    try {
+      if (root.closest(list[i])) return true;
+    } catch (err) {
+      // Selector khong hop le voi trinh duyet nay - bo qua, khong lam hong ca vong.
+    }
+  }
+  return false;
+}
+
+/**
+ * Ban bat dong bo cua isExcludedControl cho mot locator.
+ * Khong doc duoc phan tu thi coi nhu KHONG dung duoc: tha bo qua con hon bam
+ * nham vao nut cua UI khac.
+ */
+async function isForeignControl(locator, excludeSelectors) {
+  if (!excludeSelectors?.length) return false;
+  try {
+    const excluded = await runExtractorOnLocator(locator, isExcludedControl, {
+      selectors: excludeSelectors,
+    });
+    return excluded !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** Khoanh vung khoi prompt: di len `up` cap cha tinh tu chinh o nhap. */
+function promptScope(input, up) {
+  const levels = Math.max(1, Number(up) || 1);
+  return input.locator(`xpath=${new Array(levels).fill('..').join('/')}`);
+}
+
+/** Cac muc "di len bao nhieu cap" se thu, tu hep den rong. */
+function scopeLevels(configured) {
+  const base = Number(configured) || 5;
+  return Array.from(new Set([3, base, 7])).filter((n) => n > 0).sort((a, b) => a - b);
+}
+
+/**
+ * Nhu firstVisible() nhung duyet MOI phan tu khop spec (khong chi cai dau tien)
+ * va loai ung vien thuoc ve UI khac.
+ */
+async function firstAllowed(scope, specs, opts) {
+  const list = Array.isArray(specs) ? specs : [];
+  const exclude = opts.exclude ?? [];
+  const perSpec = opts.perSpec ?? 1200;
+  for (let i = 0; i < list.length; i += 1) {
+    const all = buildLocator(scope, list[i]);
+    if (!all) continue;
+    let count = 0;
+    try { count = await all.count(); } catch { continue; }
+    for (let j = 0; j < Math.min(count, 12); j += 1) {
+      const candidate = all.nth(j);
+      try {
+        await candidate.waitFor({ state: 'visible', timeout: perSpec });
+      } catch { continue; }
+      // eslint-disable-next-line no-await-in-loop
+      if (await isForeignControl(candidate, exclude)) {
+        opts.logger?.debug(`Bo qua ${describeSpec(list[i])}: thuoc ve UI khac (control_exclude).`);
+        continue;
+      }
+      if (i > 0 && opts.logger && opts.block) {
+        opts.logger.selectorDrift(opts.block, describeSpec(list[0]), describeSpec(list[i]));
+      }
+      return { locator: candidate, spec: list[i], index: i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Gui prompt di, theo dung thu tu thao tac tay:
+ *   1. Enter ngay tren o nhap (o "Ask anything" cua Google submit bang Enter).
+ *   2. Nut gui TRONG khoi prompt, noi rong dan pham vi tim.
+ *   3. Cuoi cung moi quet toan trang - van qua bo loc control_exclude.
+ *
+ * Moi lan thu deu phai duoc XAC MINH. Truoc day code bam mot nut roi coi nhu
+ * xong: no bam trung nut Search cua Google (`button[type='submit']`), trang tai
+ * lai, prompt bay mat, va vong cho Copy chay du 120s moi bao timeout
+ * (run that 20260827-153106).
+ */
+async function sendPrompt({ page, input, promptSel, logger, baseline }) {
+  const exclude = promptSel.control_exclude ?? [];
+  const verify = (via) => verifySubmitted({ page, input, promptSel, logger, baseline, via });
+
+  await stampPage(page);
+  try {
+    await input.press('Enter', { timeout: 5000 });
+    const result = await verify('Enter');
+    if (result.ok) return { ok: true, via: 'Enter', signal: result.signal };
+    if (result.reason === 'RELOADED') return { ok: false, reason: 'RELOADED', via: 'Enter' };
+  } catch (err) {
+    logger?.debug(`Nhan Enter tren o prompt khong thanh cong: ${err.message}`);
+  }
+
+  for (const up of scopeLevels(promptSel.container_up)) {
+    const found = await firstAllowed(promptScope(input, up), promptSel.submit, {
+      perSpec: 1200, exclude, logger, block: 'ai_prompt_box.submit',
+    });
+    if (!found) continue;
+    await stampPage(page);
+    await found.locator.click({ timeout: 5000 });
+    logger?.info(`Da bam nut gui trong khoi prompt (len ${up} cap, ${describeSpec(found.spec)}).`);
+    const result = await verify(`submit@up${up}`);
+    if (result.ok) return { ok: true, via: `submit@up${up}`, signal: result.signal };
+    if (result.reason === 'RELOADED') return { ok: false, reason: 'RELOADED', via: `submit@up${up}` };
+  }
+
+  const wide = await firstAllowed(page, promptSel.submit, {
+    perSpec: 1200, exclude, logger, block: 'ai_prompt_box.submit',
+  });
+  if (wide) {
+    await stampPage(page);
+    await wide.locator.click({ timeout: 5000 });
+    logger?.info(`Da bam nut gui tim tren toan trang (${describeSpec(wide.spec)}).`);
+    const result = await verify('submit@page');
+    if (result.ok) return { ok: true, via: 'submit@page', signal: result.signal };
+    if (result.reason === 'RELOADED') return { ok: false, reason: 'RELOADED', via: 'submit@page' };
+  }
+
+  // Chua tung co dump nao chup luc o prompt DA co chu - moi dump cu deu chup
+  // sau khi trang da doi. Khong co no thi chi con nuoc doan selector.
+  await saveAiControls(page, logger, 'ai-prompt-filled-controls');
+  return { ok: false, reason: 'NO_SUBMIT_CONTROL' };
+}
+
+/**
+ * Prompt da that su duoc gui di chua?
+ *
+ * Tin hieu manh (chac chan da gui): dang generating, co them khoi response,
+ * co them nut Copy, hoac URL doi sang dang AI Mode.
+ * Tin hieu vua: o nhap trong ma trang KHONG bi tai lai.
+ * Rieng "o nhap trong" mot minh thi khong du - trang tai lai cung lam o nhap
+ * trong, va do dung la kieu hong cua run 20260827-153106.
+ */
+async function verifySubmitted(args) {
+  const {
+    page, input, promptSel, logger, baseline,
+  } = args;
+  const timeoutMs = args.timeoutMs ?? 8000;
+  const pollMs = args.pollMs ?? 400;
+  // Moi giao dien hoi dap deu xoa o nhap NGAY khi nhan prompt. Neu qua khoang
+  // an han ma chu van con nguyen trong o thi cach gui vua thu khong an - tra
+  // ve som de thu cach khac, thay vi dung het timeout.
+  const graceMs = args.graceMs ?? 2500;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+
+  for (;;) {
+    if (!(await pageStampAlive(page))) {
+      logger?.debug(`Trang da tai lai sau khi thu gui bang ${args.via}; dau moc window da mat.`);
+      return { ok: false, reason: 'RELOADED' };
+    }
+    if (await anyPresent(page, promptSel.generating_markers)) return { ok: true, signal: 'generating' };
+    if (await countResponseBlocks(page, promptSel) > (baseline?.response ?? 0)) {
+      return { ok: true, signal: 'response' };
+    }
+    const copyNow = await countCopyButtons(page, promptSel);
+    if (copyNow.some((count, i) => count > (baseline?.copy?.[i] ?? 0))) {
+      return { ok: true, signal: 'copy' };
+    }
+    if (looksLikeAiUrl(await currentUrl(page))) return { ok: true, signal: 'url' };
+
+    const value = await readInputValue(input);
+    if (value !== null && value.trim() === '') return { ok: true, signal: 'input-cleared' };
+    if (value !== null && Date.now() - started >= graceMs) {
+      logger?.debug(`Prompt van con trong o nhap sau ${graceMs}ms; ${args.via} chua gui duoc.`);
+      return { ok: false, reason: 'NO_SIGNAL' };
+    }
+
+    if (Date.now() >= deadline) return { ok: false, reason: 'NO_SIGNAL' };
+    await sleep(pollMs);
+  }
+}
+
+/** URL da chuyen sang giao dien hoi dap cua Google chua. */
+function looksLikeAiUrl(url) {
+  return /[?&]udm=50\b/i.test(String(url ?? '')) || /\baimc\b/i.test(String(url ?? ''));
+}
+
+/** Doc gia tri o nhap; null nghia la khong doc duoc (khong ket luan gi). */
+async function readInputValue(input) {
+  if (typeof input?.inputValue !== 'function') return null;
+  try {
+    return await input.inputValue();
+  } catch {
+    return null;
+  }
+}
+
+/** Dat dau moc len window de phat hien trang bi tai lai. */
+async function stampPage(page) {
+  return page
+    .evaluate(() => { window.__serpAiSubmitMark = 1; return true; })
+    .catch(() => false);
+}
+
+/** Dau moc con khong? Khong doc duoc thi coi nhu con, de khong bao dong gia. */
+async function pageStampAlive(page) {
+  return page
+    .evaluate(() => Boolean(window.__serpAiSubmitMark))
+    .catch(() => true);
+}
+
+/**
+ * Dat mot chuoi danh dau vao clipboard truoc khi bam Copy.
+ *
+ * Ghi trong page context nen KHONG can them quyen clipboardWrite cho extension
+ * bridge. Ghi xong phai DOC LAI bang chinh duong doc se dung ve sau: neu doc ra
+ * khong phai chuoi vua ghi thi hai dau ghi/doc khong cung mot clipboard, luc do
+ * sentinel vo nghia va ta quay ve cach so sanh voi noi dung doc duoc truoc do.
+ * @returns {Promise<string|null>}
+ */
+async function poisonClipboard(page) {
+  const sentinel = `__serp_ai_cho_copy_${Math.abs(Date.now() % 1e9)}__`;
+  const written = await page
+    .evaluate(async (mark) => {
+      try {
+        window.focus();
+        if (!navigator.clipboard?.writeText) return false;
+        await navigator.clipboard.writeText(mark);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }, sentinel)
+    .catch(() => false);
+  if (written !== true) return null;
+  return (await readClipboardText(page)) === sentinel ? sentinel : null;
+}
+
+/**
+ * Cho clipboard doi so voi noi dung TRUOC khi bam Copy.
+ * Day la cai chan cuoi cung giu cho noi dung cua buoc Ahrefs/PAA khong lot vao
+ * muc AI Mode khi nut Copy bam trung hoac chua kip ghi.
+ */
+async function waitForClipboardChange(page, before, opts) {
+  const deadline = Date.now() + (opts?.timeoutMs ?? 5000);
+  const pollMs = opts?.pollMs ?? 300;
+  let text = '';
+  for (;;) {
+    text = await readClipboardText(page);
+    if (typeof text === 'string' && text !== before) return { changed: true, text };
+    if (Date.now() >= deadline) return { changed: false, text: text ?? '' };
+    await sleep(pollMs);
+  }
 }
 
 /** Dem nut Copy theo tung selector de phan biet Overview cu va answer moi. */
@@ -355,15 +674,32 @@ async function countCopyButtons(scope, promptSel) {
   return counts;
 }
 
-/** Doc noi dung do nut Copy vua ghi, uu tien quyen cua bridge extension. */
+/**
+ * Doc noi dung do nut Copy vua ghi, uu tien quyen clipboardRead cua bridge.
+ *
+ * Duong du phong qua navigator.clipboard.readText() nem NotAllowedError
+ * ("Document is not focused") khi tab khong phai tab dang hoat dong - loi that
+ * trong run 20260827-141637, va cung la ly do E2E cuc bo doc duoc clipboard o
+ * run nay nhung khong doc duoc o run ke tiep. Vi vay phai dua tab len truoc va
+ * focus lai document truoc moi lan doc.
+ */
 async function readClipboardText(page) {
   if (typeof page.readClipboardText === 'function') {
     const text = await page.readClipboardText().catch(() => '');
     if (text) return text;
   }
+  if (typeof page.bringToFront === 'function') await page.bringToFront().catch(() => {});
   return page.evaluate(async () => {
+    try {
+      window.focus();
+      if (document.body && typeof document.body.focus === 'function') document.body.focus();
+    } catch (err) { /* khong focus duoc thi van thu doc */ }
     if (!navigator.clipboard?.readText) return '';
-    return navigator.clipboard.readText();
+    try {
+      return await navigator.clipboard.readText();
+    } catch (err) {
+      return '';
+    }
   }).catch(() => '');
 }
 
@@ -500,20 +836,6 @@ export async function waitForStableResponse(page, opts) {
   return { locator: null, stable: false, text: lastText };
 }
 
-/** DOM response -> Markdown, bo prompt echo, follow-up chips va khoi UI Share/Export. */
-async function responseToMarkdown(locator, promptSel, prompt) {
-  const markdown = await runExtractorOnLocator(locator, domToMarkdown, {
-    excludeSelectors: promptSel.exclude_in_response ?? [],
-    headingBase: 3,
-    keepLinks: true,
-  });
-  if (!markdown) return '';
-  const cleaned = normalizeMarkdownBlock(markdown);
-  const lines = cleaned.split('\n');
-  while (lines.length && dedupeKey(lines[0]) === dedupeKey(prompt)) lines.shift();
-  return trimTrailingUi(lines.join('\n'), promptSel.response_stop_markers ?? []);
-}
-
 /**
  * Cat cau tra loi tai moc UI dau tien (Share public link, Export, danh sach mang xa hoi),
  * roi bo not dong "moi chao" cut o cuoi.
@@ -545,4 +867,7 @@ export function trimTrailingUi(markdown, stopMarkers) {
 export const _internals = {
   findResponseLocator, countResponseBlocks, describeSpec, findPromptBox, adoptAiSurface,
   waitForCopyButton, countCopyButtons, readClipboardText, openOverviewPrompt,
+  isExcludedControl, isForeignControl, promptScope, scopeLevels, firstAllowed,
+  sendPrompt, verifySubmitted, looksLikeAiUrl, waitForClipboardChange, readInputValue,
+  poisonClipboard,
 };

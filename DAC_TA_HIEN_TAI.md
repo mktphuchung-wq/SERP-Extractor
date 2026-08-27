@@ -7,7 +7,7 @@
 
 - Phiên bản tài liệu: 1.0 — dựng từ source ngày 2026-08-21
 - Node 20+ / Windows 10-11 / Google Chrome Stable
-- Test: **178 test, pass 178** (`npm test`, ~50s)
+- Test: **264 test, pass 264** (`npm test`, ~190s)
 
 ---
 
@@ -390,34 +390,48 @@ Giá trị `source` hợp lệ — dùng trong manifest và trong smoke test đ�
 stateDiagram-v2
     [*] --> SearchLoaded
     SearchLoaded --> OverviewFound: thấy AI Overview
-    SearchLoaded --> AIModeTab: không thấy nhưng có link AI Mode
-    SearchLoaded --> AIModeDirect: bật direct_ai_mode_fallback
-    SearchLoaded --> Missing
+    SearchLoaded --> Missing: AI_OVERVIEW_NOT_FOUND
     OverviewFound --> Expanded: click Show more
     Expanded --> PromptBox
-    Expanded --> AIModeTab: không có ô nhập
-    AIModeTab --> PromptBox
-    AIModeTab --> AIModeDirect
-    AIModeDirect --> PromptBox
-    AIModeDirect --> Missing
-    PromptBox --> Submitted
-    Submitted --> ResponseStable
+    Expanded --> Missing: không có ô nhập (AI_MODE_UNAVAILABLE)
+    PromptBox --> Submitted: gửi được VÀ đã xác minh
+    PromptBox --> Missing: AI_PROMPT_SUBMIT_FAILED
+    Submitted --> CopyReady: hiện nút Copy mới
     Submitted --> Missing: hết thời gian
-    ResponseStable --> Captured
+    CopyReady --> Captured: clipboard đã đổi
+    CopyReady --> Missing: AI_COPY_STALE_CLIPBOARD
     Missing --> Captured
     Captured --> [*]
 ```
 
-**Bắt câu trả lời mới**: đếm số block `response_container` **trước** khi gửi prompt (`beforeCount`),
-sau đó lấy `nth(beforeCount)` nếu số block tăng, ngược lại lấy block cuối.
+Nội dung câu trả lời **lấy qua nút Copy + clipboard**, không đọc DOM. Lý do: khung trả lời
+của Google trộn lẫn khối UI (Share, Good/Bad response, nguồn trích dẫn), còn nút Copy cho ra
+đúng phần văn bản đã định dạng sẵn.
 
-**Ổn định** (`waitForStableResponse`): poll mỗi `ai.poll_interval_ms`, coi là xong khi
-độ dài ≥ `ai.min_response_chars` **và** không đổi trong `ai.stable_ms` **và** không còn
-`generating_markers`. Quá `ai.response_timeout_ms` mà đã có nội dung → trả về với `stable:false`
-kèm cảnh báo `AI_RESPONSE_TIMEOUT`.
+**Gửi prompt** (`sendPrompt`) — thử theo thứ tự, **mỗi lần đều phải xác minh**:
 
-**Làm sạch**: `domToMarkdown` với `exclude_in_response`, bỏ dòng đầu nếu trùng prompt, rồi
-`trimTrailingUi()` cắt tại `response_stop_markers` đầu tiên và bỏ dòng kết thúc bằng dấu `:` bị cụt.
+1. `Enter` ngay trên ô nhập (ô "Ask anything" của Google submit bằng Enter);
+2. nút gửi tìm **trong khối prompt** — nới rộng dần `3 → container_up → 7` cấp cha tính từ ô nhập;
+3. cuối cùng mới quét toàn trang — vẫn qua bộ lọc `control_exclude`.
+
+**Xác minh đã gửi** (`verifySubmitted`): đặt một dấu mốc lên `window` trước khi bấm.
+Dấu mốc biến mất → trang đã tải lại → `AI_PROMPT_SUBMIT_FAILED` **ngay**, không chờ hết
+`ai.response_timeout_ms`. Còn lại coi là đã gửi khi: có `generating_markers`, có thêm block
+`response_container`, có thêm nút Copy, URL sang dạng AI, hoặc ô nhập đã trống.
+Sau `graceMs` (2.5s) mà prompt vẫn nằm nguyên trong ô → cách vừa thử không ăn → thử cách kế tiếp.
+
+**Chọn nút Copy** (`waitForCopyButton`): ba ràng buộc cộng dồn — số lượng phải **nhiều hơn**
+baseline đếm trước khi gửi; ứng viên không được nằm trong `control_exclude`; duyệt ngược từ
+cuối cây DOM vì nút của câu trả lời mới sinh ra sau cùng.
+
+**Nhận nội dung** (`CopyReady`): ghi sẵn một chuỗi đánh dấu vào clipboard rồi **đọc lại để
+xác nhận cùng một clipboard**; ghi không được thì lấy nội dung đọc được làm mốc. Bấm Copy xong
+poll tới `ai.clipboard_timeout_ms`; clipboard **không đổi** → `AI_COPY_STALE_CLIPBOARD` (nội dung
+đang giữ là của bước trước, tuyệt đối không dùng). Nội dung trùng prompt hoặc ngắn hơn
+`ai.min_response_chars` cũng bị từ chối.
+
+`waitForStableResponse` và `trimTrailingUi` vẫn được xuất khẩu và có test riêng, nhưng
+**không nằm trên luồng chính** nữa — chúng dành cho đường đọc DOM nếu sau này cần.
 
 ### 7.4 suggestions.mjs — thứ tự thao tác quan trọng
 
@@ -652,6 +666,8 @@ Thứ tự merge: `config/default.yaml` → `config/local.yaml` (nếu có) → 
 | `ai.stable_ms` | `2500` | Nội dung không đổi bao lâu thì coi là xong |
 | `ai.min_response_chars` | `40` | |
 | `ai.poll_interval_ms` | `750` | |
+| `ai.clipboard_timeout_ms` | `5000` | Chờ clipboard đổi sau khi bấm Copy |
+| `ai.clipboard_poll_ms` | `300` | |
 | `ai.prompt_template` | `Analyze the search topic "{{keyword}}"…` | |
 | `extractors.keyword_ideas_source` | `ahrefs` | |
 | `extractors.allow_keyword_ideas_fallback` | `false` | **Không đổi thành true nếu không ghi nhãn nguồn** |
@@ -706,7 +722,8 @@ Thêm mã lỗi mới: khai trong `ERROR_EXIT_MAP` (`src/core/errors.mjs`), nế
 `AHREFS_REGION_NOT_VERIFIED` · `AHREFS_WIDGET_NOT_FOUND` · `AHREFS_KEYWORD_IDEAS_UNAVAILABLE` ·
 `AHREFS_PAA_UNAVAILABLE` · `PAA_NOT_FOUND` · `SUGGESTIONS_NOT_FOUND` · `SUGGESTIONS_PERSONALIZED` ·
 `SUGGESTIONS_PERSONALIZED_ONLY` · `EXTENSION_POPUP_UNUSABLE` · `EXTENSION_MISSING` ·
-`AI_OVERVIEW_NOT_FOUND` · `AI_MODE_UNAVAILABLE` · `AI_RESPONSE_TIMEOUT` · `SELECTOR_DRIFT` ·
+`AI_OVERVIEW_NOT_FOUND` · `AI_MODE_UNAVAILABLE` · `AI_RESPONSE_TIMEOUT` ·
+`AI_PROMPT_SUBMIT_FAILED` · `AI_COPY_STALE_CLIPBOARD` · `SELECTOR_DRIFT` ·
 `SERP_FALLBACK_USED` · `SERP_EMPTY_PAGE`
 
 Mã chỉ ghi trong log, chưa vào `WARNING_CODES`: `SERP_MORE_RESULTS_THAN_EXPECTED`,
@@ -746,8 +763,8 @@ Test cần Chrome tự **skip** nếu máy không có Chrome.
 | `integration/ahrefs-widget` (7) | Panel đang hiển thị, lọc UI noise | `extractors/ahrefs-dom.mjs` |
 | `integration/suggestions-paa` (5) | Dropdown, popup, PAA | `extractors/suggestions-dom.mjs`, `paa-dom.mjs` |
 | `integration/output-pipeline` (7) | staging → output → gate → manifest | `output/*` |
-| `integration/real-world-regressions` (14) | 4 lỗi từ run thật | suggestions, ai-mode, serp-export |
-| `integration/browser-adapters` (8) | Locator, `page.evaluate`, download — **Chrome thật** | `browser/locator.mjs`, `page-eval.mjs` |
+| `integration/real-world-regressions` (32) | 6 lỗi từ run thật | suggestions, ai-mode, serp-export |
+| `integration/browser-adapters` (11) | Locator, `page.evaluate`, download, bẫy control AI — **Chrome thật** | `browser/locator.mjs`, `page-eval.mjs`, `adapters/ai-mode.mjs` |
 | `integration/attach-profile` (3) | Attach cửa sổ có sẵn, `PROFILE_MISMATCH` — **Chrome thật** | `browser/chrome-launcher.mjs`, `cdp-connector.mjs` |
 | `integration/e2e-local` (2) | Trọn orchestrator trên SERP giả lập — **Chrome thật** | `orchestrator.mjs` |
 | `integration/e2e-parallel-batch` (2) | Cờ legacy cùng dùng workflow cố định, nhiều keyword — **Chrome thật** | `orchestrator.mjs`, `core/input.mjs` |
@@ -853,6 +870,9 @@ Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng c
 | Section `## AI Mode` trống | `selectors.ai_overview.container` → xem `SELECTOR_DRIFT` trong log |
 | AI Mode lấy nhầm nội dung UI | `selectors.ai_prompt_box.response_stop_markers`, `exclude_in_response` |
 | AI Mode timeout | Kiểm tra DOM `Copy text`, `ai.response_timeout_ms`, `ai_prompt_box.copy_button` |
+| Mục `## AI Mode` ra nội dung của PAA/Ahrefs | `ai_prompt_box.control_exclude`; xem `AI_COPY_STALE_CLIPBOARD` trong log |
+| Bấm gửi prompt xong SERP tải lại | `ai_prompt_box.submit` — tuyệt đối không thêm `button[type='submit']` |
+| `AI_PROMPT_SUBMIT_FAILED` | Mở `logs\<run_id>\ai-prompt-filled-controls.html`, lấy selector nút gửi thật |
 | AI Mode lấy nhầm prompt | Selector answer phải khớp chính xác `Copy text`, không dùng prefix `Copy` |
 | Keywords Ideas trống | `selectors.ahrefs_widget.*`; kiểm tra đã đăng nhập Ahrefs chưa |
 | Keywords Ideas lẫn chữ UI | `selectors.ahrefs_widget.ui_noise` |
@@ -884,7 +904,7 @@ Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng c
 | Kích hoạt SEO SERP Extraction Tool qua popup manifest | Chưa biết có hoạt động không khi popup mở ở tab khác |
 | Bắt download CSV của extension | Đã test với trang giả lập, chưa test với extension thật |
 | Pause/resume CAPTCHA & login | Run thật chưa gặp CAPTCHA |
-| AI Overview Page 1 | Đã kiểm tra trực tiếp Show more → Prompt → Load; Copy answer có test DOM thật và hồi quy Chrome |
+| AI Overview Page 1 | Show more → Prompt → gửi → Copy: đã sửa hai lỗi bấm nhầm control ngày 2026-08-27 (run `20260827-153106` bấm trúng nút Search của Google; run `20260827-152533` đọc lại clipboard cũ của bước PAA). Có fixture hồi quy `ai-overview-submit-traps.html`. **Chưa chạy lại trên Google thật sau khi sửa.** |
 | Launcher gộp + `OPEN_CHROME.bat` | Đã chạy với Chrome thật qua bridge |
 | Nghiệm thu 8/10 keyword (mục 16.15 đặc tả gốc) | Mới chạy 1/10 |
 
@@ -895,6 +915,7 @@ Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng c
 | `search.pages` khác 2 chỉ cảnh báo rồi bỏ qua | `stepSerpPages` | Config gây hiểu nhầm |
 | `performance.keyword_concurrency` chưa được đọc | `config/default.yaml` | Khóa có mặt nhưng chưa có tác dụng |
 | `recovery.save_trace_on_error` chưa được dùng | config | Chưa có `trace.zip` như đặc tả gốc mô tả |
+| `ai.direct_ai_mode_fallback` chưa được đọc | `adapters/ai-mode.mjs` | Khóa có mặt, kèm `ai_overview.direct_url` và `ai_overview.ai_mode_entry`, nhưng adapter không bao giờ mở trang AI Mode `udm=50`. Hỏi trong AI Overview thất bại là ghi cảnh báo, không có đường dự phòng |
 | Extractor chỉ nhận CSS selector | các adapter dùng `cssSpecs()` | Spec `role`/`text` trong nhóm dành cho extractor bị bỏ qua âm thầm |
 | File CSV extension tải về không bị xóa khỏi `Downloads` | `serp-export.mjs` | Cố ý, tránh xóa nhầm; nhưng đọng file |
 | Hàm export nhưng chưa nơi nào gọi | xem bảng 18.2.1 | Code chết, xóa được hoặc là chỗ móc sẵn cho sau này |

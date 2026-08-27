@@ -1,0 +1,162 @@
+<!--
+  Fixture hoi quy dung tu DOM THAT cua Google ngay 2026-08-27,
+  keyword "Scottish Girl Names" (logs\20260827-153106-…\ai-overview-after-load-controls.html).
+
+  Hai cai bay da lam hong hai run lien tiep:
+
+    BAY 1 - nut Search cua Google: <button aria-label="Search" type="submit"> nam trong
+            <form id="tsf">. Selector `button[type='submit']` tren toan trang khop dung
+            no. Bam vao -> trang xu ly nhu mot lan tim kiem moi, o prompt bi xoa
+            (run 20260827-153106: cho Copy het 120s roi timeout).
+
+    BAY 2 - nut Copy cua thanh Ahrefs Toolbar: <button class="ah_tb-btn-link …">Copy</button>.
+            Selector `text=^copy$` khop no, va no ghi vao clipboard noi dung Ahrefs
+            (run 20260827-152533: 4 cau PAA lot vao muc "## AI Mode").
+
+  Nut gui that cua o "Ask anything" KHONG mang chu "Load" - chi co aria-label="Send",
+  dung nhu giao dien that.
+
+  window.__clicked ghi lai moi nut bi bam de test khang dinh duoc dieu KHONG xay ra.
+-->
+<html>
+<body>
+  <!-- BAY 1: form tim kiem cua Google, luon nam dau trang -->
+  <form id="tsf" action="/search" role="search">
+    <textarea class="gLFyf" name="q" role="combobox" aria-label="Search">Scottish Girl Names</textarea>
+    <button class="HZVG1b Tg7LZd" jsname="Tg7LZd" aria-label="Search" type="submit" id="search-submit"></button>
+  </form>
+
+  <div id="search">
+    <div id="rso">
+      <div data-attrid="AIOverviewBlock">
+        <div role="heading" aria-level="2">AI Overview</div>
+        <div class="ai-body"><p>Short AI Overview text before expanding.</p></div>
+        <button aria-label="Copy text" id="old-overview-copy"></button>
+        <div role="button" aria-label="Show more AI Overview" aria-expanded="false" id="showmore">Show more</div>
+
+        <div class="ai-follow-up" hidden>
+          <div class="prompt-shell">
+            <div class="prompt-row">
+              <textarea class="ITIRGe" placeholder="Ask anything" id="promptbox"></textarea>
+              <button aria-label="Add files, tools, and select a model" id="addfiles"></button>
+              <button aria-label="Send" id="send"></button>
+            </div>
+          </div>
+        </div>
+        <div id="responses"></div>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    BAY 2: thanh cong cu Ahrefs. Dat o CUOI trang vi day la thanh dinh
+    (sticky bar), nen no dung SAU nut Copy cua cau tra loi trong cay DOM va vong
+    duyet nguoc cua waitForCopyButton gap no truoc.
+    Co BA lop chan no, cong don: baseline dem nut Copy, control_exclude, va
+    kiem tra clipboard co doi hay khong. Lop thu ba la lop duy nhat bat duoc
+    dung kieu hong cua run 20260827-152533 (bam mot nut Copy nao do khong ghi
+    gi ca, roi doc lai noi dung PAA con sot trong clipboard).
+  -->
+  <div id="ahrefs-toolbar" class="ahrefs-toolbar">
+    <button class="ah_tb-btn-link css-1tz7j90-copy" id="ahrefs-copy">Copy</button>
+  </div>
+
+  <script>
+    window.__clicked = [];
+    window.__copiedText = '';
+    var PAA_TEXT = [
+      "What is the prettiest Scottish girl's name?",
+      'What is an old Scottish female name?',
+      'What are the top 100 Scottish girl names?',
+      "What is a celtic girl's name?"
+    ].join('\n');
+
+    // Clipboard bat dau voi noi dung cua buoc Ahrefs/PAA ngay truoc do - dung
+    // nhu tinh huong that khi phase AI chay sau phase PAA.
+    window.__copiedText = PAA_TEXT;
+
+    function track(id) {
+      document.getElementById(id).addEventListener('click', function () {
+        window.__clicked.push(id);
+      });
+    }
+    ['search-submit', 'ahrefs-copy', 'old-overview-copy', 'addfiles', 'send'].forEach(track);
+
+    // BAY 1: bam nut Search lam trang xu ly nhu lan tim kiem moi -> xoa o prompt.
+    document.getElementById('search-submit').addEventListener('click', function (ev) {
+      ev.preventDefault();
+      document.getElementById('promptbox').value = '';
+    });
+
+    // BAY 2: nut Copy cua Ahrefs ghi de clipboard bang noi dung PAA (van la
+    // chuoi cu, nen clipboard KHONG doi -> adapter phai phat hien ra).
+    document.getElementById('ahrefs-copy').addEventListener('click', function () {
+      window.__copiedText = PAA_TEXT;
+    });
+
+    document.getElementById('old-overview-copy').addEventListener('click', function () {
+      window.__copiedText = 'Short AI Overview text before expanding.';
+    });
+
+    var showMoreClicks = 0;
+    document.getElementById('showmore').addEventListener('click', function () {
+      showMoreClicks += 1;
+      // Nhu giao dien that: click dau tien khong an vi node dang animation.
+      if (showMoreClicks === 1) return;
+      this.setAttribute('aria-expanded', 'true');
+      document.querySelector('.ai-follow-up').hidden = false;
+    });
+
+    var ANSWER = [
+      '### Scottish girl names',
+      '',
+      'Scottish girl names draw on **Gaelic**, Norse and Lowland Scots roots.',
+      '',
+      '- Gaelic forms such as Ailsa and Iona',
+      '- Anglicised spellings used since the 1800s',
+      '',
+      'Intent splits between naming a baby and researching heritage.'
+    ].join('\n');
+
+    // Voi hash #nocopy: cau tra loi khong bao gio co nut Copy rieng. Day dung
+    // la tinh huong cuoi cua run 20260827-153106 - va la luc code cu roi xuong
+    // selector `text=^copy$`, bam trung nut Copy cua Ahrefs.
+    var NO_COPY = location.hash.indexOf('nocopy') >= 0;
+
+    // Nut gui that: chi phan ung voi chinh no, khong phai voi nut Search.
+    document.getElementById('send').addEventListener('click', function () {
+      var box = document.getElementById('promptbox');
+      if (!box.value.trim()) return;      // chua co prompt thi khong gui gi ca
+      box.value = '';
+
+      var host = document.getElementById('responses');
+      var spinner = document.createElement('div');
+      spinner.setAttribute('role', 'progressbar');
+      host.appendChild(spinner);
+
+      var block = document.createElement('div');
+      block.setAttribute('data-rp-response', '1');
+      block.textContent = '…';
+      host.appendChild(block);
+
+      setTimeout(function () {
+        spinner.remove();
+        block.textContent = ANSWER;
+        if (NO_COPY) return;
+        // Copy cua answer: icon role=button, khong co chu "Copy" hien thi.
+        var copy = document.createElement('div');
+        copy.setAttribute('role', 'button');
+        copy.setAttribute('tabindex', '0');
+        copy.setAttribute('aria-label', 'Copy text');
+        copy.id = 'answer-copy';
+        copy.innerHTML = '<svg aria-hidden="true"><path d="M8 7h11v14H8z"></path></svg>';
+        copy.addEventListener('click', function () {
+          window.__clicked.push('answer-copy');
+          window.__copiedText = ANSWER;
+        });
+        host.appendChild(copy);
+      }, 600);
+    });
+  </script>
+</body>
+</html>

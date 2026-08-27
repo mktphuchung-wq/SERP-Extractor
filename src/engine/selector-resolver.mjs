@@ -294,6 +294,21 @@ export function fillNode(arg) {
   return { ok: true };
 }
 
+/**
+ * Doc gia tri hien tai cua o nhap lieu.
+ *
+ * Playwright co san Locator.inputValue(); ham nay de RemoteLocator co cung API,
+ * nho vay adapter khong phai re nhanh theo engine. AI Mode dung no de biet
+ * Google da nuot prompt chua (o nhap trong = da gui).
+ */
+export function valueOfNode(arg) {
+  const store = window.__serpNodes || [];
+  const el = store[(arg && arg.index) || 0];
+  if (!el) return '';
+  if (el.isContentEditable) return el.textContent || '';
+  return el.value != null ? String(el.value) : '';
+}
+
 /** Focus dung node truoc khi phat su kien ban phim that qua CDP. */
 export function focusNode(arg) {
   const store = window.__serpNodes || [];

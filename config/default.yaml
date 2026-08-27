@@ -87,6 +87,10 @@ ai:
   stable_ms: 2500
   min_response_chars: 40
   poll_interval_ms: 750
+  # Sau khi bam Copy, cho bay nhieu lau de clipboard doi so voi noi dung TRUOC
+  # do. Khong doi -> coi nhu that bai, khong lay noi dung cu cua buoc Ahrefs.
+  clipboard_timeout_ms: 5000
+  clipboard_poll_ms: 300
   prompt_template: 'Analyze the search topic "{{keyword}}" and explain the main intent, key subtopics, and important distinctions.'
 
 extractors:
