@@ -61,6 +61,15 @@ ai_overview:
     - { type: text, text: '(?i)^ai mode$' }
     - { type: css, css: "a[href*='udm=50']" }
   direct_url: 'https://www.google.com/search?udm=50&q={{keyword}}&hl=en&gl=us'
+  # Tu Chrome ~151, mot so ban KHONG tai AI Mode trong tab nua: chung mo mot vo
+  # giao dien noi bo (chrome://contextual-tasks/) roi nhet trang google that vao
+  # mot <webview> ben trong. Nguoi dung van doc duoc cau tra loi tren man hinh,
+  # nhung document CUA TAB khong he chua o nhap prompt -> moi selector deu truot
+  # va muc "AI Mode" ra rong (loi that, run 2026-08-27).
+  # Hai khoa duoi cho tool biet khi nao phai nhay sang target con va nhay sang
+  # cai nao - xem RemotePage.adoptEmbeddedTarget().
+  embedded_shell_url: '(?i)^chrome://contextual[-_]tasks'
+  embedded_target_url: '(?i)^https?://([a-z0-9-]+\.)*google\.[a-z.]+/search'
 
 ai_prompt_box:
   selector_version: '2026-08-21.1'

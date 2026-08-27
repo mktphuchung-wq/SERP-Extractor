@@ -65,6 +65,21 @@ export function readExtensionDir(dir, extensionId, io = fs) {
     return { installed: false, reason: `MANIFEST_INVALID: ${err.message}`, dir };
   }
 
+  return { ...describeManifest(manifest, extensionId), dir };
+}
+
+/**
+ * Doc mot doi tuong manifest da parse thanh thong tin ma adapter can.
+ *
+ * Tach rieng khoi readExtensionDir vi engine bridge KHONG doc duoc manifest tu
+ * dia (no lam viec tren profile Chrome that cua nguoi dung, khong biet profile
+ * do nam o dau). No lay manifest bang cach mo chrome-extension://<id>/manifest.json
+ * trong mot tab roi parse - xem src/engine/live-extensions.mjs.
+ *
+ * @param {object} manifest noi dung manifest.json da parse
+ * @param {string} extensionId id dung de dung chrome-extension:// URL
+ */
+export function describeManifest(manifest, extensionId) {
   const popupPath =
     manifest.action?.default_popup ??
     manifest.browser_action?.default_popup ??
@@ -88,7 +103,6 @@ export function readExtensionDir(dir, extensionId, io = fs) {
     version: manifest.version,
     manifestVersion: manifest.manifest_version,
     hasKey: Boolean(manifest.key),
-    dir,
     popupPath,
     popupUrl: popupPath ? `chrome-extension://${extensionId}/${stripLeadingSlash(popupPath)}` : null,
     optionsUrl: optionsPage ? `chrome-extension://${extensionId}/${stripLeadingSlash(optionsPage)}` : null,

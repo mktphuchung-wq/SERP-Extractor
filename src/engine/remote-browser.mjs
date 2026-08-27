@@ -39,9 +39,10 @@ export class RemoteContext {
    * newTab() trong extension/background.js.
    */
   async newPage(options = {}) {
+    const active = options.active !== false;
     const res = await this._bridge.call('newTab', {
       url: options.url ?? 'about:blank',
-      active: options.active !== false,
+      active,
     });
     const page = new RemotePage({
       context: this,
@@ -49,8 +50,11 @@ export class RemoteContext {
       tabId: res.tabId,
       logger: this._logger,
     });
-    page._visible = true;
-    this._markVisible(page);
+    // Tab mo o che do nen KHONG duoc danh dau la dang hien thi: lam vay se
+    // khien tab dang lam viec that tuong minh bi che, roi bo qua buoc
+    // bringToFront can thiet truoc khi gui su kien chuot/ban phim.
+    page._visible = active;
+    if (active) this._markVisible(page);
     this._pages.push(page);
     for (const fn of this._pageListeners) {
       try { fn(page); } catch { /* nguoi nghe hong khong lam vo run */ }

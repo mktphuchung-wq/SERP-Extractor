@@ -156,8 +156,56 @@ export async function openSuggestionDropdown(args) {
     logger?.debug('Dropdown goi y khong xuat hien sau khi go lai keyword.');
     return false;
   }
-  await sleep(500);
+  await settleDropdown(page, sel, logger);
   return true;
+}
+
+/**
+ * Doi dropdown NGUNG THAY DOI truoc khi doc.
+ *
+ * Google ve dropdown hai nhip: nhip dau la lich su tim kiem cua tai khoan (co
+ * san trong may), nhip sau moi la goi y that tra ve tu mang. Doc ngay sau nhip
+ * dau thi chi thay may dong lich su - va neu bat
+ * exclude_personalized_suggestions thi tat ca deu bi loai, ket qua ra 0 muc
+ * (loi that, run 2026-08-27: 2 dong doc duoc, ca 2 deu la lich su).
+ */
+async function settleDropdown(page, sel, logger, opts = {}) {
+  const deadline = Date.now() + (opts.timeoutMs ?? 3000);
+  const pollMs = opts.pollMs ?? 300;
+  const selectors = cssSpecs(sel.option_nodes);
+  let last = -1;
+  let stableSince = Date.now();
+
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    const count = await countOptions(page, cssSpecs(sel.listbox), selectors);
+    if (count !== last) {
+      last = count;
+      stableSince = Date.now();
+      continue;
+    }
+    // On dinh du lau va da co dong -> doc duoc roi.
+    if (count > 0 && Date.now() - stableSince >= (opts.stableMs ?? 600)) return count;
+  }
+  logger?.debug(`Dropdown goi y chua on dinh sau khi doi; doc voi ${last} dong.`);
+  return last;
+}
+
+/** Dem so dong dang co trong dropdown (khong co tac dung phu). */
+async function countOptions(page, listboxSelectors, optionSelectors) {
+  return page.evaluate((arg) => {
+    let box = null;
+    for (let i = 0; i < arg.listbox.length && !box; i += 1) {
+      try { box = document.querySelector(arg.listbox[i]); } catch (e) { box = null; }
+    }
+    if (!box) return 0;
+    for (let i = 0; i < arg.options.length; i += 1) {
+      let found = [];
+      try { found = box.querySelectorAll(arg.options[i]); } catch (e) { found = []; }
+      if (found.length) return found.length;
+    }
+    return 0;
+  }, { listbox: listboxSelectors, options: optionSelectors }).catch(() => 0);
 }
 
 /** Dong dropdown, khong submit goi y nao. */
@@ -199,7 +247,12 @@ async function readOpenDropdown(args) {
   }
 
   const items = normalizeList(result?.items ?? [], { minLength: 2 });
-  logger?.info(`Suggestions tu DOM dropdown: ${items.length} muc (${flagged.length} dong bi gan nhan ca nhan).`);
+  // Ghi ca TONG SO DONG doc duoc: khong co no thi "0 muc" co the la
+  // "dropdown rong" hay "loc vut het" deu duoc, khong chan doan noi.
+  logger?.info(
+    `Suggestions tu DOM dropdown: ${items.length}/${result?.totalRows ?? 0} dong `
+    + `(${flagged.length} dong bi gan nhan ca nhan).`,
+  );
   return {
     items,
     flagged: flagged.map((p) => (typeof p === 'string' ? p : p.text)),
@@ -317,8 +370,15 @@ async function tryAutocompleteEndpoint(page, keyword, config, logger) {
     if (items.length) logger?.info(`Suggestions tu endpoint complete/search: ${items.length} muc.`);
     return { items, source: 'google_autocomplete_endpoint', warnings: [] };
   } catch (err) {
-    logger?.debug(`Endpoint goi y loi: ${err.message}`);
-    return { items: [], source: 'none', warnings: [] };
+    // Truoc day dong nay o muc debug nen khi dropdown bi loc sach, run that
+    // 2026-08-27 chi de lai "Khong lay duoc Google Search Suggestions" ma
+    // khong he cho biet nguon du phong da hong vi cai gi.
+    logger?.warn(`Khong goi duoc endpoint goi y cua Google: ${err.message}`, {
+      code: WARNING_CODES.SUGGESTIONS_ENDPOINT_PARSE_FAILED, url,
+    });
+    return {
+      items: [], source: 'none', warnings: [WARNING_CODES.SUGGESTIONS_ENDPOINT_PARSE_FAILED],
+    };
   }
 }
 

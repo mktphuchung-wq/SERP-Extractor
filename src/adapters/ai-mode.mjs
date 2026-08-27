@@ -103,8 +103,8 @@ export async function collectAiAnswer(args) {
             await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
             await sleep(1500);
           }
-          const input = await firstVisible(page, promptSel.input, {
-            timeout: 8000, perSpec: 2500, logger, block: 'ai_prompt_box.input',
+          const input = await findPromptBox(page, {
+            promptSel, overviewSel, logger, timeout: 8000,
           });
           if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_mode' };
           if (aiCfg.direct_ai_mode_fallback !== false) return 'AIModeDirect';
@@ -113,7 +113,7 @@ export async function collectAiAnswer(args) {
       },
 
       AIModeDirect: {
-        async run() {
+        async run(ctx) {
           const template = overviewSel.direct_url || 'https://www.google.com/search?udm=50&q={{keyword}}&hl=en&gl=us';
           const url = template.replace('{{keyword}}', encodeURIComponent(keyword));
           logger?.info(`Thu mo AI Mode truc tiep: ${url}`);
@@ -123,13 +123,24 @@ export async function collectAiAnswer(args) {
             logger?.warn(`Khong mo duoc AI Mode truc tiep: ${err.message}`, {
               code: WARNING_CODES.AI_MODE_UNAVAILABLE,
             });
+            ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
             return 'Missing';
           }
           await sleep(1500);
-          const input = await firstVisible(page, promptSel.input, {
-            timeout: 10000, perSpec: 2500, logger, block: 'ai_prompt_box.input',
+          const input = await findPromptBox(page, {
+            promptSel, overviewSel, logger, timeout: 10000,
           });
           if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_mode_direct' };
+
+          // Het duong: ghi lai BANG CHUNG thay vi im lang bo qua. Truoc day
+          // nhanh nay tra ve 'Missing' khong log gi, nen run that 2026-08-27
+          // chi de lai mot muc AI Mode rong ma khong co manh moi nao.
+          await logger?.screenshot(page, 'ai-mode-khong-co-o-nhap-prompt');
+          logger?.warn(
+            `Mo duoc AI Mode nhung khong tim thay o nhap prompt. URL thuc te: ${await currentUrl(page)}.`,
+            { code: WARNING_CODES.AI_MODE_UNAVAILABLE },
+          );
+          ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
           return 'Missing';
         },
       },
@@ -212,6 +223,65 @@ export async function collectAiAnswer(args) {
     chars: markdown.replace(/^>.*$/gm, '').trim().length,
     states: machine.history,
   };
+}
+
+/** URL that su cua tab, doc lai tu trang neu engine ho tro. */
+async function currentUrl(page) {
+  if (typeof page.syncUrl === 'function') {
+    const url = await page.syncUrl().catch(() => null);
+    if (url) return url;
+  }
+  return page.url();
+}
+
+/**
+ * Tim o nhap prompt cua AI Mode.
+ *
+ * Thu trong document cua tab truoc. Neu khong thay, thu bam sang target con:
+ * mot so ban Chrome khong tai AI Mode trong tab ma nhet trang google that vao
+ * mot <webview> ben trong chrome://contextual-tasks/. Khi do document cua tab
+ * KHONG chua o nhap prompt du man hinh hien day du - xem ghi chu
+ * ai_overview.embedded_shell_url trong config/selectors.yaml.
+ */
+async function findPromptBox(page, { promptSel, overviewSel, logger, timeout }) {
+  const input = await firstVisible(page, promptSel.input, {
+    timeout, perSpec: 2500, logger, block: 'ai_prompt_box.input',
+  });
+  if (input) return input;
+
+  if (!(await adoptAiSurface(page, overviewSel, logger))) return null;
+
+  return firstVisible(page, promptSel.input, {
+    timeout, perSpec: 2500, logger, block: 'ai_prompt_box.input',
+  });
+}
+
+/**
+ * Bam vao target con dang chua trang AI Mode that.
+ * @returns {Promise<boolean>} false neu engine khong ho tro hoac khong tim thay
+ */
+async function adoptAiSurface(page, overviewSel, logger) {
+  // Engine playwright khong co kha nang nay (Playwright khong expose target
+  // kieu webview thanh page). O do khong thay prompt box la khong thay that.
+  if (typeof page.adoptEmbeddedTarget !== 'function') return false;
+
+  const url = await currentUrl(page);
+  const shell = toRegExp(overviewSel.embedded_shell_url);
+  const inShell = shell ? shell.test(String(url)) : false;
+  logger?.info(
+    `Khong thay o nhap prompt trong tab (URL: ${url}`
+    + `${inShell ? ' - day la vo giao dien noi bo cua Chrome' : ''}). `
+    + 'Dang tim trang AI Mode trong target con...',
+  );
+
+  const match = toRegExp(overviewSel.embedded_target_url)
+    ?? /^https?:\/\/([a-z0-9-]+\.)*google\.[a-z.]+\/search/i;
+  const picked = await page.adoptEmbeddedTarget({ match, timeoutMs: 8000 });
+  if (!picked) {
+    logger?.debug('Khong co target con nao khop trang AI Mode.');
+    return false;
+  }
+  return true;
 }
 
 /** Dem so block response dang co truoc khi gui prompt. */
@@ -316,4 +386,4 @@ export function trimTrailingUi(markdown, stopMarkers) {
   return kept.join('\n').trim();
 }
 
-export const _internals = { findResponseLocator, countResponseBlocks, describeSpec };
+export const _internals = { findResponseLocator, countResponseBlocks, describeSpec, findPromptBox, adoptAiSurface };

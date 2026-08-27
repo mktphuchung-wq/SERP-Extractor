@@ -24,6 +24,7 @@ import { waitForEnter, isInteractive } from './core/prompt.mjs';
 import { Mutex, NO_LOCK } from './core/mutex.mjs';
 
 import { startEngine, ENGINES } from './engine/index.mjs';
+import { discoverLive } from './engine/live-extensions.mjs';
 import { discoverEffective } from './browser/bundled-extensions.mjs';
 import { createCapture, NO_CAPTURE } from './browser/dom-capture.mjs';
 
@@ -202,25 +203,41 @@ async function stepStartBrowser(state, setEngine, options) {
   // Engine bridge lam viec tren chinh profile cua nguoi dung, nen cac extension
   // ho da cai (Ahrefs, SEO SERP, Suggestion Extractor) co san va dang dang nhap.
   // Engine playwright thi phai dua vao ban dong goi trong vendor\extensions.
+  //
+  // LUU Y LICH SU: truoc day nhanh bridge dat state.extensions = {} vi khong doc
+  // duoc thu muc profile that. Hau qua la moi adapter thay "chua cai" va
+  // SEO SERP Extraction Tool khong bao gio duoc dung. Bay gio ta hoi thang
+  // trinh duyet dang chay - xem src/engine/live-extensions.mjs.
   if (session.engine === ENGINES.BRIDGE) {
-    state.extensions = {};
     logger.info(
-      'Dang dung profile that cua ban: cac extension da cai va phien dang nhap '
-      + '(Google, Ahrefs) deu dung duoc ngay.',
+      'Dang dung profile that cua ban: dang kiem tra cac extension co trong '
+      + 'trinh duyet nay...',
     );
-    return;
+    state.extensions = await discoverLive({
+      context: state.context,
+      config,
+      logger,
+      timeoutMs: config.extractors?.extension_timeout_ms ?? 20000,
+    });
+  } else {
+    state.extensions = discoverEffective(config);
   }
 
-  state.extensions = discoverEffective(config);
+  const howToFix = session.engine === ENGINES.BRIDGE
+    ? 'Cai/bat extension trong chinh Chrome nay roi chay lai'
+    : 'Chay INSTALL.bat de cai lai, hoac cai tay tai';
   for (const [key, meta] of Object.entries(state.extensions)) {
     if (meta.installed) {
-      const where = meta.source === 'bundled' ? 'dong goi san' : `profile: ${meta.profileDir}`;
-      logger.info(`Extension OK: ${meta.name ?? meta.configuredName} v${meta.version} [${where}]`);
+      const where = { bundled: 'dong goi san', live: 'trinh duyet cua ban' }[meta.source]
+        ?? `profile: ${meta.profileDir}`;
+      logger.info(
+        `Extension OK: ${meta.name ?? meta.configuredName}`
+        + `${meta.version ? ` v${meta.version}` : ''} [${where}]`,
+      );
     } else {
       logger.warn(
         `Khong dung duoc extension "${meta.configuredName}" (${meta.id}): ` +
-        `${meta.bundleReason ?? meta.reason}. Chay INSTALL.bat de cai lai, ` +
-        `hoac cai tay tai: ${meta.webstore}`,
+        `${meta.bundleReason ?? meta.reason}. ${howToFix}: ${meta.webstore}`,
         { code: WARNING_CODES.EXTENSION_MISSING, extension: key, reason: meta.bundleReason ?? meta.reason },
       );
     }

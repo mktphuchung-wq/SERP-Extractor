@@ -29,6 +29,8 @@ export class RemotePage {
     this._closed = false;
     this._url = 'about:blank';
     this._cdp = null;
+    /** Target con dang duoc bam vao (vd <webview> cua AI Mode); null = chinh tab. */
+    this._targetId = null;
     // Tab moi luon mo o che do nen de khong cuop viec dang lam cua nguoi dung.
     this._visible = false;
     /** @type {Array<{tabId:number, target:object}>} */
@@ -76,19 +78,117 @@ export class RemotePage {
       throw new AppError('PAGE_CLOSED', 'Tab da dong, khong thao tac duoc nua.');
     }
     if (!this._cdp) {
-      this._cdp = new CdpSession({ bridge: this._bridge, tabId: this._tabId, logger: this._logger });
-      await this._cdp.enable('Page');
-      await this._cdp.enable('Runtime');
-      this._cdp.on('Page.frameNavigated', (params) => {
-        if (!params.frame?.parentId) this._url = params.frame.url;
-      });
+      this._cdp = await this._openSession(
+        this._targetId ? { targetId: this._targetId } : { tabId: this._tabId },
+      );
     }
     return this._cdp;
+  }
+
+  /** Tao mot phien CDP moi gan vao tab hoac vao mot target con. */
+  async _openSession(debuggee) {
+    const cdp = new CdpSession({ ...debuggee, bridge: this._bridge, logger: this._logger });
+    await cdp.enable('Page');
+    await cdp.enable('Runtime');
+    cdp.on('Page.frameNavigated', (params) => {
+      if (!params.frame?.parentId) this._url = params.frame.url;
+    });
+    return cdp;
+  }
+
+  /* --------------------------------------------------------- target con */
+
+  /**
+   * Liet ke moi target trong trinh duyet (ke ca <webview>).
+   * @returns {Promise<object[]>} TargetInfo cua chrome.debugger.getTargets()
+   */
+  async listTargets() {
+    const res = await this._bridge.call('getTargets', {}).catch(() => null);
+    return res?.targets ?? [];
+  }
+
+  /** Target id cua chinh tab nay (khong phai target con nao). */
+  async _ownTargetId(targets) {
+    const list = targets ?? (await this.listTargets());
+    const mine = list.find((t) => t.tabId === this._tabId && (t.type === 'page' || !t.type));
+    return mine?.id ?? mine?.targetId ?? null;
+  }
+
+  /**
+   * Chuyen moi thao tac sang mot target con - vi du <webview> ma Chrome dung de
+   * hien AI Mode ben trong chrome://contextual-tasks/.
+   *
+   * VI SAO CAN: khi Google chuyen SERP sang AI Mode (udm=50), mot so ban Chrome
+   * khong tai trang do trong tab nua ma nhet no vao mot <webview>. Document cua
+   * TAB khi do rong hoac chi la vo giao dien noi bo, nen moi selector cua o nhap
+   * prompt deu truot - trieu chung dung nhu run that 2026-08-27: mo udm=50 thanh
+   * cong nhung khong tim thay ai_prompt_box.input, muc AI Mode ra rong.
+   *
+   * Chi doi duong di cua lenh CDP. tabId giu nguyen nen bringToFront/close
+   * van tac dong dung tab do.
+   *
+   * @param {{match:RegExp, timeoutMs?:number, pollMs?:number}} opts
+   * @returns {Promise<object|null>} TargetInfo da bam vao, null neu khong co
+   */
+  async adoptEmbeddedTarget(opts) {
+    const { match } = opts;
+    const deadline = Date.now() + (opts.timeoutMs ?? 8000);
+    const pollMs = opts.pollMs ?? 500;
+
+    for (;;) {
+      const targets = await this.listTargets();
+      const ownId = await this._ownTargetId(targets);
+      const candidates = targets.filter((t) => {
+        const id = t.id ?? t.targetId;
+        if (!id || id === ownId || id === this._targetId) return false;
+        return Boolean(t.url) && match.test(t.url);
+      });
+      // <webview> truoc, roi den iframe/page tach tien trinh.
+      candidates.sort((a, b) => rankTarget(a) - rankTarget(b));
+
+      const pick = candidates[0];
+      if (pick) {
+        const id = pick.id ?? pick.targetId;
+        try {
+          await this._bridge.call('attachTarget', { targetId: id });
+          this._cdp?.dispose();
+          this._cdp = await this._openSession({ targetId: id });
+          this._targetId = id;
+          this._url = pick.url;
+          this._logger?.info(
+            `Da bam vao target con "${pick.type ?? '?'}" de doc noi dung: ${pick.url}`,
+          );
+          return pick;
+        } catch (err) {
+          this._logger?.debug(`Khong attach duoc target ${id}: ${err.message}`);
+        }
+      }
+      if (Date.now() >= deadline) return null;
+      await new Promise((resolve) => { setTimeout(resolve, pollMs); });
+    }
+  }
+
+  /** Quay lai lam viec voi chinh tab, bo target con dang bam. */
+  async releaseTarget() {
+    if (!this._targetId) return;
+    const targetId = this._targetId;
+    this._targetId = null;
+    this._cdp?.dispose();
+    this._cdp = null;
+    await this._bridge.call('detachTarget', { targetId }).catch(() => {});
+  }
+
+  /** Dang lam viec tren target con hay tren chinh tab. */
+  get embeddedTargetId() {
+    return this._targetId;
   }
 
   /* ------------------------------------------------------------ dieu huong */
 
   async goto(url, options = {}) {
+    // Dieu huong luon la viec cua TAB. Neu dang bam vao mot target con thi
+    // target do se bien mat khi tab roi trang, nen tra ve tab truoc da.
+    await this.releaseTarget();
     const session = await this._session();
     const timeout = options.timeout ?? 45000;
     const waitUntil = options.waitUntil ?? 'load';
@@ -371,6 +471,18 @@ export class RemotePage {
   }
 }
 
+/**
+ * Uu tien target khi phai chon giua nhieu target con cung khop URL.
+ * So nho hon = uu tien cao hon.
+ */
+function rankTarget(target) {
+  const type = String(target?.type ?? '').toLowerCase();
+  if (type === 'webview') return 0;
+  if (type === 'iframe') return 1;
+  if (type === 'page') return 2;
+  return 3;
+}
+
 /** Doi ban ghi download cua extension thanh doi tuong kieu Playwright. */
 function makeDownload(info) {
   return {
@@ -415,4 +527,4 @@ function encodeArg(arg) {
   return { json: JSON.stringify(encoded ?? null), replacements };
 }
 
-export const _internals = { encodeArg, makeDownload, CLEAR_STORE_SRC };
+export const _internals = { encodeArg, makeDownload, rankTarget, CLEAR_STORE_SRC };
