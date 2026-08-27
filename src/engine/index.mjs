@@ -75,6 +75,7 @@ async function startBridgeEngine({ config, logger, options }) {
     port: config.bridge?.port ?? 0,
     logger,
     timeout: config.bridge?.call_timeout_ms ?? 30000,
+    reconnectTimeout: config.bridge?.reconnect_timeout_ms ?? 10000,
   });
   const { port, token } = await bridge.start();
   servePairingPage(bridge.server.server, { token, port, extensionId: BRIDGE_EXTENSION_ID });

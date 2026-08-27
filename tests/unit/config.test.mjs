@@ -30,6 +30,7 @@ test('loadConfig: doc duoc default.yaml va resolve duong dan tuyet doi', () => {
   assert.equal(config.search.pages, 2);
   assert.equal(config.extractors.allow_keyword_ideas_fallback, false);
   assert.equal(config.extractors.paa_capture_mode, 'questions_only');
+  assert.equal(config.bridge.reconnect_timeout_ms, 10000);
   assert.equal(config.output.on_conflict, 'timestamp');
   assert.ok(path.isAbsolute(config.output.root));
   assert.ok(path.isAbsolute(config.browser.user_data_dir));
@@ -49,6 +50,7 @@ test('loadConfig: cau hinh sai thi nem AppError co ma INVALID_CONFIG', () => {
     (err) => err instanceof AppError && err.code === 'INVALID_CONFIG',
   );
   assert.throws(() => loadConfig({ overrides: { browser: { remote_debugging_port: 80 } } }), AppError);
+  assert.throws(() => loadConfig({ overrides: { bridge: { reconnect_timeout_ms: 0 } } }), AppError);
 });
 
 test('loadSelectors: co du cac block va selector_version', () => {

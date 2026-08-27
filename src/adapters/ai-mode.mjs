@@ -1,34 +1,33 @@
 /**
- * AI Overview / AI Mode adapter - trien khai dung state machine o Step 2 cua dac ta.
+ * AI Overview adapter - thao tac tren dung trang SERP dang mo.
  *
- *   SearchLoaded --> OverviewFound --> Expanded --> PromptBox --> Submitted
- *                 --> AIModeTab ---------------------^
- *                 --> Missing ------------------------------------> Captured
+ *   SearchLoaded -> OverviewFound -> Expanded -> PromptBox -> Submitted
+ *                -> Missing                         -> CopyReady -> Captured
  *
  * Nguyen tac: khong bao gio "bia" noi dung. Khong lay duoc AI answer thi ghi
  * canh banh ro rang trong section va danh dau run la COMPLETED_WITH_WARNINGS.
  */
 import { createMachine } from '../core/state-machine.mjs';
 import { firstVisible, anyPresent, describeSpec } from '../browser/locator.mjs';
-import { runExtractorOnLocator } from '../browser/page-eval.mjs';
-import { domToMarkdown } from '../extractors/dom-to-markdown.mjs';
-import { normalizeMarkdownBlock, dedupeKey, toRegExp } from '../core/text.mjs';
+import { normalizeMarkdownBlock, toRegExp } from '../core/text.mjs';
 import { sleep } from '../core/retry.mjs';
 import { WARNING_CODES } from '../core/errors.mjs';
+import { NO_LOCK } from '../core/mutex.mjs';
 
 export const AI_MISSING_NOTE =
   '> Khong tim thay AI Overview/AI Mode cho truy van nay.';
 export const AI_TIMEOUT_NOTE =
-  '> AI Mode khong tra loi xong trong thoi gian cho. Noi dung co the thieu.';
+  '> AI Overview khong tra loi xong trong thoi gian cho.';
 export const AI_UNAVAILABLE_NOTE =
-  '> Khong mo duoc AI Mode cho truy van nay (Google khong cung cap hoac yeu cau dang nhap).';
+  '> Khong thao tac duoc AI Overview tren trang SERP nay.';
 
 /**
- * @param {{page:object, config:object, selectors:object, logger:object, keyword:string, prompt:string}} args
+ * @param {{page:object, config:object, selectors:object, logger:object, keyword:string, prompt:string, lock?:object}} args
  * @returns {Promise<{markdown:string, source:string, warnings:string[], chars:number, states:string[]}>}
  */
 export async function collectAiAnswer(args) {
-  const { page, config, selectors, logger, keyword, prompt } = args;
+  const { page, config, selectors, logger, prompt } = args;
+  const lock = args.lock ?? NO_LOCK;
   const aiCfg = config.ai ?? {};
   const overviewSel = selectors.ai_overview ?? {};
   const promptSel = selectors.ai_prompt_box ?? {};
@@ -54,12 +53,6 @@ export async function collectAiAnswer(args) {
           }
           logger?.warn('Khong thay AI Overview tren SERP.', { code: WARNING_CODES.AI_OVERVIEW_NOT_FOUND });
           ctx.warnings.push(WARNING_CODES.AI_OVERVIEW_NOT_FOUND);
-
-          const entry = await firstVisible(page, overviewSel.ai_mode_entry, {
-            perSpec: 2000, logger, block: 'ai_overview.ai_mode_entry',
-          });
-          if (entry) return { to: 'AIModeTab', entry: entry.locator };
-          if (aiCfg.direct_ai_mode_fallback !== false) return 'AIModeDirect';
           return 'Missing';
         },
       },
@@ -81,65 +74,21 @@ export async function collectAiAnswer(args) {
       Expanded: {
         async run(ctx) {
           const input = await firstVisible(ctx.overview, promptSel.input, {
-            perSpec: 2000, logger, block: 'ai_prompt_box.input',
+            timeout: 8000, perSpec: 2000, logger, block: 'ai_prompt_box.input',
           });
           if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_overview' };
 
-          const pageInput = await firstVisible(page, promptSel.input, { perSpec: 2000 });
+          // Google co the render hop prompt ngoai node container ma selector
+          // AI Overview da bat duoc, nen thu lai tren toan trang SERP.
+          const pageInput = await firstVisible(page, promptSel.input, {
+            timeout: 8000, perSpec: 2000, logger, block: 'ai_prompt_box.input',
+          });
           if (pageInput) return { to: 'PromptBox', input: pageInput.locator, source: 'google_ai_overview' };
 
-          logger?.info('AI Overview khong co o nhap prompt, chuyen sang AI Mode.');
-          const entry = await firstVisible(page, overviewSel.ai_mode_entry, { perSpec: 2000 });
-          if (entry) return { to: 'AIModeTab', entry: entry.locator };
-          if (aiCfg.direct_ai_mode_fallback !== false) return 'AIModeDirect';
-          return 'Missing';
-        },
-      },
-
-      AIModeTab: {
-        async run(ctx) {
-          if (ctx.entry) {
-            await ctx.entry.click({ timeout: 8000 }).catch(() => {});
-            await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
-            await sleep(1500);
-          }
-          const input = await findPromptBox(page, {
-            promptSel, overviewSel, logger, timeout: 8000,
+          await logger?.screenshot(page, 'ai-overview-khong-co-o-nhap-prompt');
+          logger?.warn('Da bam Show more nhung khong tim thay o nhap prompt tren SERP.', {
+            code: WARNING_CODES.AI_MODE_UNAVAILABLE,
           });
-          if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_mode' };
-          if (aiCfg.direct_ai_mode_fallback !== false) return 'AIModeDirect';
-          return 'Missing';
-        },
-      },
-
-      AIModeDirect: {
-        async run(ctx) {
-          const template = overviewSel.direct_url || 'https://www.google.com/search?udm=50&q={{keyword}}&hl=en&gl=us';
-          const url = template.replace('{{keyword}}', encodeURIComponent(keyword));
-          logger?.info(`Thu mo AI Mode truc tiep: ${url}`);
-          try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          } catch (err) {
-            logger?.warn(`Khong mo duoc AI Mode truc tiep: ${err.message}`, {
-              code: WARNING_CODES.AI_MODE_UNAVAILABLE,
-            });
-            ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
-            return 'Missing';
-          }
-          await sleep(1500);
-          const input = await findPromptBox(page, {
-            promptSel, overviewSel, logger, timeout: 10000,
-          });
-          if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_mode_direct' };
-
-          // Het duong: ghi lai BANG CHUNG thay vi im lang bo qua. Truoc day
-          // nhanh nay tra ve 'Missing' khong log gi, nen run that 2026-08-27
-          // chi de lai mot muc AI Mode rong ma khong co manh moi nao.
-          await logger?.screenshot(page, 'ai-mode-khong-co-o-nhap-prompt');
-          logger?.warn(
-            `Mo duoc AI Mode nhung khong tim thay o nhap prompt. URL thuc te: ${await currentUrl(page)}.`,
-            { code: WARNING_CODES.AI_MODE_UNAVAILABLE },
-          );
           ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
           return 'Missing';
         },
@@ -147,52 +96,68 @@ export async function collectAiAnswer(args) {
 
       PromptBox: {
         async run(ctx) {
-          const before = await countResponseBlocks(page, promptSel);
-          logger?.info('Gui prompt vao AI Mode.');
-          await ctx.input.click({ timeout: 5000 }).catch(() => {});
-          await ctx.input.fill(prompt, { timeout: 10000 });
-          await sleep(300);
+          const submitted = await lock.run(async () => {
+            logger?.info('Dan prompt vao AI Overview tren trang SERP.');
+            await ctx.input.click({ timeout: 5000 });
+            await ctx.input.fill(prompt, { timeout: 10000 });
+            await sleep(400);
 
-          const submit = await firstVisible(page, promptSel.submit, { perSpec: 1500 });
-          if (submit) {
-            await submit.locator.click({ timeout: 5000 }).catch(() => {});
-          } else {
-            await ctx.input.press('Enter').catch(() => {});
+            const load = await firstVisible(page, promptSel.submit, {
+              timeout: 8000, perSpec: 1600, logger, block: 'ai_prompt_box.submit',
+            });
+            if (!load) return false;
+            await load.locator.click({ timeout: 5000 });
+            logger?.info('Da bam "Load" de gui prompt.');
+            return true;
+          });
+
+          if (!submitted) {
+            logger?.warn('Khong tim thay nut "Load" sau khi dan prompt.', {
+              code: WARNING_CODES.AI_MODE_UNAVAILABLE,
+            });
+            ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
+            return 'Missing';
           }
-          return { to: 'Submitted', beforeCount: before, submittedAt: Date.now() };
+          return 'Submitted';
         },
       },
 
       Submitted: {
         async run(ctx) {
-          const result = await waitForStableResponse(page, {
-            selectors: promptSel,
-            beforeCount: ctx.beforeCount,
-            minChars: aiCfg.min_response_chars ?? 40,
-            stableMs: aiCfg.stable_ms ?? 2500,
+          const copy = await waitForCopyButton(page, promptSel, {
             timeoutMs: aiCfg.response_timeout_ms ?? 120000,
             pollMs: aiCfg.poll_interval_ms ?? 750,
-            logger,
           });
-          if (!result.locator) {
-            logger?.warn('Het thoi gian cho AI Mode tra loi.', { code: WARNING_CODES.AI_RESPONSE_TIMEOUT });
+          if (!copy) {
+            logger?.warn('Het thoi gian cho nut "Copy" cua AI Overview.', {
+              code: WARNING_CODES.AI_RESPONSE_TIMEOUT,
+            });
             ctx.warnings.push(WARNING_CODES.AI_RESPONSE_TIMEOUT);
-            await logger?.screenshot(page, 'ai-response-timeout');
+            await logger?.screenshot(page, 'ai-overview-copy-timeout');
             return { to: 'Missing', note: AI_TIMEOUT_NOTE };
           }
-          return { to: 'ResponseStable', response: result.locator, stable: result.stable };
+          return { to: 'CopyReady', copy: copy.locator };
         },
       },
 
-      ResponseStable: {
+      CopyReady: {
         async run(ctx) {
-          const markdown = await responseToMarkdown(ctx.response, promptSel, prompt);
-          if (!markdown) {
+          const copied = await lock.run(async () => {
+            await ctx.copy.click({ timeout: 5000 });
+            logger?.info('Da bam "Copy" cua AI Overview.');
+            await sleep(600);
+            return readClipboardText(page);
+          });
+          const markdown = normalizeMarkdownBlock(copied);
+          if (!markdown || normalizeMarkdownBlock(markdown) === normalizeMarkdownBlock(prompt)) {
+            logger?.warn('Nut Copy khong dua cau tra loi hop le vao clipboard.', {
+              code: WARNING_CODES.AI_RESPONSE_TIMEOUT,
+            });
             ctx.warnings.push(WARNING_CODES.AI_RESPONSE_TIMEOUT);
             return { to: 'Missing', note: AI_TIMEOUT_NOTE };
           }
-          if (!ctx.stable) ctx.warnings.push(WARNING_CODES.AI_RESPONSE_TIMEOUT);
-          return { to: 'Captured', markdown, source: ctx.source ?? 'google_ai_mode' };
+          logger?.info(`Da doc ${markdown.length} ky tu AI Overview tu clipboard.`);
+          return { to: 'Captured', markdown, source: 'google_ai_overview_clipboard' };
         },
       },
 

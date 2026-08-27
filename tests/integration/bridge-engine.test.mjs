@@ -211,3 +211,19 @@ test('dong tab va nhieu tab song song', SKIP, async () => {
     await b.close();
   });
 });
+
+test('extension tu ket noi lai sau khi WebSocket bi dong giua run', SKIP, async () => {
+  await withEngine(async ({ page, bridge }) => {
+    const firstConnection = bridge.conn;
+    assert.ok(firstConnection, 'phai co socket ban dau');
+
+    // 1012 = Service Restart. Day la mot disconnect that tren day WebSocket,
+    // khong phai goi truc tiep ham reconnect cua extension.
+    firstConnection.close(1012, 'integration-test-service-restart');
+    await bridge.waitForClient(10000);
+
+    assert.notEqual(bridge.conn, firstConnection, 'phai tao socket moi');
+    assert.equal(bridge.connected, true);
+    assert.equal(await page.evaluate(() => document.title), 'Trang thu');
+  });
+});

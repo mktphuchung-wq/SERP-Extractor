@@ -112,6 +112,12 @@ function validateConfig(config) {
     || bridgePort < 0 || bridgePort > 65535 || (bridgePort > 0 && bridgePort < 1024))) {
     problems.push('bridge.port phai la 0 (tu chon) hoac so nguyen 1024-65535');
   }
+  for (const key of ['pair_timeout_ms', 'call_timeout_ms', 'reconnect_timeout_ms']) {
+    const value = config?.bridge?.[key];
+    if (value != null && (!Number.isInteger(value) || value < 100 || value > 600000)) {
+      problems.push(`bridge.${key} phai la so nguyen 100-600000ms`);
+    }
+  }
   if (!['timestamp', 'fail', 'overwrite'].includes(config?.output?.on_conflict)) {
     problems.push('output.on_conflict phai la timestamp | fail | overwrite');
   }

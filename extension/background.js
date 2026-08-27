@@ -19,6 +19,7 @@
 
 const CDP_VERSION = '1.3';
 const PING_INTERVAL_MS = 20000;
+const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
 
 /** @type {WebSocket|null} */
 let socket = null;
@@ -29,6 +30,9 @@ const ownedTabs = new Set();
 /** Download dang theo doi: id -> ban ghi. */
 const downloads = new Map();
 let pingTimer = null;
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+let intentionalShutdown = false;
 
 /* ------------------------------------------------------------------ Ghep noi */
 
@@ -44,6 +48,7 @@ function handleRuntimeMessage(msg, sender, sendResponse, { external }) {
       sendResponse({ ok: false, error: 'Chi nhan ghep noi tu 127.0.0.1.' });
       return true;
     }
+    intentionalShutdown = false;
     connect(msg.port, msg.token)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
@@ -72,19 +77,28 @@ chrome.runtime.onMessageExternal.addListener(
   (msg, sender, sendResponse) => handleRuntimeMessage(msg, sender, sendResponse, { external: true }),
 );
 
-async function connect(port, token) {
+async function connect(port, token, { persist = true } = {}) {
+  clearReconnectTimer();
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.close(1000, 'ghep noi lai');
   }
-  await chrome.storage.session.set({ port, token });
+  if (persist) await chrome.storage.session.set({ port, token });
+  await restoreOwnedTabs();
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`);
-    const failTimer = setTimeout(() => reject(new Error('Het thoi gian ket noi toi tool.')), 10000);
+    const failTimer = setTimeout(() => {
+      try { ws.close(); } catch { /* socket chua mo */ }
+      reject(new Error('Het thoi gian ket noi toi tool.'));
+    }, 10000);
+    let opened = false;
 
     ws.addEventListener('open', async () => {
       clearTimeout(failTimer);
+      opened = true;
       socket = ws;
+      reconnectAttempt = 0;
+      clearReconnectTimer();
       startPing();
       const info = await chrome.runtime.getManifest();
       send({
@@ -106,11 +120,42 @@ async function connect(port, token) {
     });
 
     ws.addEventListener('close', () => {
-      if (socket === ws) socket = null;
+      clearTimeout(failTimer);
+      // Mot ket noi moi co the da thay ws nay. Close event cua socket CU khong
+      // duoc phep tat heartbeat hay detach debugger cua socket MOI.
+      if (socket !== ws) return;
+      socket = null;
       stopPing();
       detachAll();
+      if (opened && !intentionalShutdown) scheduleReconnect();
     });
   });
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+/**
+ * Tu noi lai sau mot disconnect giua run.
+ * Token/port nam trong storage.session nen van con sau khi service worker ngu
+ * va hoi sinh, nhung se bi xoa khi tool shutdown binh thuong.
+ */
+function scheduleReconnect() {
+  if (intentionalShutdown || reconnectTimer || socket?.readyState === WebSocket.OPEN) return;
+  const delay = RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  reconnectAttempt += 1;
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    const { port, token } = await chrome.storage.session.get(['port', 'token']);
+    if (!port || !token || intentionalShutdown) return;
+    try {
+      await connect(port, token, { persist: false });
+    } catch {
+      scheduleReconnect();
+    }
+  }, delay);
 }
 
 function startPing() {
@@ -129,6 +174,30 @@ function stopPing() {
 
 function send(payload) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+}
+
+async function persistOwnedTabs() {
+  await chrome.storage.session.set({ ownedTabs: [...ownedTabs] });
+}
+
+/** Khoi phuc quyen so huu tab sau khi service worker MV3 bi Chrome khoi dong lai. */
+async function restoreOwnedTabs() {
+  const stored = await chrome.storage.session.get('ownedTabs');
+  const ids = Array.isArray(stored.ownedTabs) ? stored.ownedTabs : [];
+  let changed = false;
+  for (const tabId of ids) {
+    if (!Number.isInteger(tabId)) {
+      changed = true;
+      continue;
+    }
+    try {
+      await chrome.tabs.get(tabId);
+      ownedTabs.add(tabId);
+    } catch {
+      changed = true;
+    }
+  }
+  if (changed) await persistOwnedTabs();
 }
 
 /* --------------------------------------------------------------- Dieu phoi RPC */
@@ -189,6 +258,7 @@ async function dispatch(method, params) {
 async function newTab({ url = 'about:blank', active = true, windowId } = {}) {
   const tab = await chrome.tabs.create({ url, active, ...(windowId ? { windowId } : {}) });
   ownedTabs.add(tab.id);
+  await persistOwnedTabs();
   await attachDebugger({ tabId: tab.id });
   return { tabId: tab.id, windowId: tab.windowId, url: tab.url ?? url, active };
 }
@@ -208,6 +278,7 @@ async function closeTab({ tabId }) {
   assertOwned(tabId);
   await detach({ tabId });
   ownedTabs.delete(tabId);
+  await persistOwnedTabs();
   try { await chrome.tabs.remove(tabId); } catch { /* tab da dong */ }
   return { closed: true };
 }
@@ -322,6 +393,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (!ownedTabs.has(tabId)) return;
   ownedTabs.delete(tabId);
+  persistOwnedTabs().catch(() => {});
   attached.delete(`tab:${tabId}`);
   send({ event: 'tab-removed', params: { tabId } });
 });
@@ -356,10 +428,14 @@ async function takeDownload({ id }) {
 /* -------------------------------------------------------------------- Ket thuc */
 
 async function shutdown() {
+  intentionalShutdown = true;
+  clearReconnectTimer();
   for (const tabId of [...ownedTabs]) {
     try { await closeTab({ tabId }); } catch { /* bo qua */ }
   }
   detachAll();
+  ownedTabs.clear();
+  await chrome.storage.session.remove(['port', 'token', 'ownedTabs']);
   return { done: true };
 }
 
@@ -370,5 +446,8 @@ restore();
 async function restore() {
   if (socket?.readyState === WebSocket.OPEN) return;
   const { port, token } = await chrome.storage.session.get(['port', 'token']);
-  if (port && token) connect(port, token).catch(() => { /* tool da tat */ });
+  if (port && token) {
+    intentionalShutdown = false;
+    connect(port, token, { persist: false }).catch(() => scheduleReconnect());
+  }
 }

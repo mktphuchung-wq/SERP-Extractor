@@ -36,21 +36,27 @@ export const DEFAULT_BRIDGE_PORT = 47653;
  *   'download'           {id, filename, state, ...}
  */
 export class BridgeServer extends EventEmitter {
+  /**
+   * @param {{port?:number, token?:string, logger?:object, timeout?:number, reconnectTimeout?:number}} opts
+   */
   constructor(opts = {}) {
     super();
     this.token = opts.token ?? crypto.randomBytes(24).toString('hex');
     this.port = opts.port ?? DEFAULT_BRIDGE_PORT;
     this.logger = opts.logger;
     this.defaultTimeout = opts.timeout ?? 30000;
+    this.reconnectTimeout = opts.reconnectTimeout ?? 10000;
 
     /** @type {import('./ws-server.mjs')._internals.WsConnection|null} */
     this.conn = null;
     this.server = null;
     this.clientInfo = null;
+    this._everConnected = false;
     this._nextId = 1;
     /** @type {Map<number, {resolve:Function, reject:Function, timer:NodeJS.Timeout, method:string}>} */
     this._pending = new Map();
     this._waiters = [];
+    this._closing = false;
   }
 
   async start() {
@@ -74,19 +80,35 @@ export class BridgeServer extends EventEmitter {
 
     conn.on('message', (text) => this._onMessage(text));
     conn.on('error', (err) => this.logger?.debug(`Loi WebSocket: ${err.message}`));
-    conn.on('close', () => {
+    conn.on('close', (info = {}) => {
       if (this.conn === conn) {
         this.conn = null;
-        this.emit('disconnected');
-      }
-      // Khong de lai promise treo vinh vien khi client bien mat.
-      for (const [id, entry] of this._pending) {
-        clearTimeout(entry.timer);
-        entry.reject(new AppError(
-          'BRIDGE_DISCONNECTED',
-          `Extension ngat ket noi khi dang cho "${entry.method}".`,
-        ));
-        this._pending.delete(id);
+        this.clientInfo = null;
+        const detail = {
+          code: Number.isInteger(info.code) ? info.code : 1006,
+          reason: info.reason || 'khong co ly do',
+          source: info.source || 'unknown',
+        };
+        if (!this._closing) {
+          this.logger?.warn(
+            `Extension bridge da ngat ket noi (WebSocket ${detail.code}: ${detail.reason}). `
+            + `Dang cho tu ket noi lai toi da ${Math.round(this.reconnectTimeout / 1000)}s.`,
+            { code: 'BRIDGE_DISCONNECTED', ...detail },
+          );
+        }
+        this.emit('disconnected', detail);
+
+        // Khong de lai promise treo vinh vien khi client bien mat. Lenh dang
+        // chay khong the gui lai an toan; lenh KE TIEP se doi reconnect trong call().
+        for (const [id, entry] of this._pending) {
+          clearTimeout(entry.timer);
+          entry.reject(new AppError(
+            'BRIDGE_DISCONNECTED',
+            `Extension ngat ket noi khi dang cho "${entry.method}".`,
+            { details: detail },
+          ));
+          this._pending.delete(id);
+        }
       }
     });
   }
@@ -123,13 +145,19 @@ export class BridgeServer extends EventEmitter {
   _onEvent(msg) {
     switch (msg.event) {
       case 'hello': {
+        const wasConnectedBefore = this._everConnected;
         this.clientInfo = msg.params ?? {};
+        this._everConnected = true;
         this.logger?.info(
-          `Extension da ket noi: ${this.clientInfo.name ?? 'bridge'} v${this.clientInfo.version ?? '?'} `
+          `${wasConnectedBefore ? 'Extension da ket noi lai' : 'Extension da ket noi'}: `
+          + `${this.clientInfo.name ?? 'bridge'} v${this.clientInfo.version ?? '?'} `
           + `(Chrome ${this.clientInfo.chromeVersion ?? '?'})`,
         );
         this.emit('connected', this.clientInfo);
-        for (const resolve of this._waiters.splice(0)) resolve(this.clientInfo);
+        for (const waiter of this._waiters.splice(0)) {
+          clearTimeout(waiter.timer);
+          waiter.resolve(this.clientInfo);
+        }
         break;
       }
       case 'cdp':
@@ -160,15 +188,17 @@ export class BridgeServer extends EventEmitter {
   waitForClient(timeoutMs = 120000) {
     if (this.connected) return Promise.resolve(this.clientInfo);
     return new Promise((resolve, reject) => {
+      const waiter = { resolve, reject, timer: null };
       const timer = setTimeout(() => {
-        const idx = this._waiters.indexOf(resolve);
+        const idx = this._waiters.indexOf(waiter);
         if (idx >= 0) this._waiters.splice(idx, 1);
         reject(new AppError(
           'BRIDGE_NOT_CONNECTED',
           `Extension khong ket noi sau ${Math.round(timeoutMs / 1000)}s.`,
         ));
       }, timeoutMs);
-      this._waiters.push((info) => { clearTimeout(timer); resolve(info); });
+      waiter.timer = timer;
+      this._waiters.push(waiter);
     });
   }
 
@@ -176,13 +206,43 @@ export class BridgeServer extends EventEmitter {
    * Goi mot method o phia extension.
    * @param {string} method
    * @param {object} [params]
-   * @param {{timeout?:number}} [opts]
+   * @param {{timeout?:number, reconnectTimeout?:number}} [opts]
    */
   call(method, params = {}, opts = {}) {
     if (!this.conn || this.conn.closed) {
+      // Neu da tung bat tay thanh cong, day la disconnect giua run chu khong
+      // phai "chua cai extension". Cho service worker tu noi lai mot khoang ngan
+      // roi moi ket luan that bai.
+      if (this._everConnected && !this._closing) {
+        return this._callAfterReconnect(method, params, opts);
+      }
       return Promise.reject(new AppError(
         'BRIDGE_NOT_CONNECTED',
         'Chua co extension nao ket noi toi bridge.',
+      ));
+    }
+    return this._callConnected(method, params, opts);
+  }
+
+  async _callAfterReconnect(method, params, opts) {
+    const timeout = opts.reconnectTimeout ?? this.reconnectTimeout;
+    try {
+      await this.waitForClient(timeout);
+    } catch (cause) {
+      throw new AppError(
+        'BRIDGE_DISCONNECTED',
+        `Extension da mat ket noi va khong tu noi lai sau ${Math.round(timeout / 1000)}s.`,
+        { cause },
+      );
+    }
+    return this._callConnected(method, params, opts);
+  }
+
+  _callConnected(method, params = {}, opts = {}) {
+    if (!this.conn || this.conn.closed) {
+      return Promise.reject(new AppError(
+        'BRIDGE_DISCONNECTED',
+        'Extension vua ngat ket noi truoc khi gui lenh.',
       ));
     }
     const id = this._nextId;
@@ -203,7 +263,15 @@ export class BridgeServer extends EventEmitter {
   }
 
   async close() {
-    for (const [, entry] of this._pending) clearTimeout(entry.timer);
+    this._closing = true;
+    for (const waiter of this._waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new AppError('BRIDGE_DISCONNECTED', 'Bridge dang dong.'));
+    }
+    for (const [, entry] of this._pending) {
+      clearTimeout(entry.timer);
+      entry.reject(new AppError('BRIDGE_DISCONNECTED', 'Bridge dang dong.'));
+    }
     this._pending.clear();
     // Doc lai this.conn sau moi await: ket noi co the bien mat giua chung
     // (Chrome dong, service worker ngu) va truoc day cho nay nem TypeError.

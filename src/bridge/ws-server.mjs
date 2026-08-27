@@ -50,15 +50,19 @@ class WsConnection extends EventEmitter {
     socket.on('data', (chunk) => this._onData(chunk));
     socket.on('error', (err) => {
       this.emit('error', err);
-      this._finish();
+      this._finish({ code: 1006, reason: err.message, source: 'socket-error' });
     });
-    socket.on('close', () => this._finish());
+    socket.on('close', (hadError) => this._finish({
+      code: 1006,
+      reason: hadError ? 'TCP socket dong do loi.' : 'TCP socket da dong.',
+      source: 'socket-close',
+    }));
   }
 
-  _finish() {
+  _finish(info = { code: 1006, reason: 'Ket noi da dong.', source: 'unknown' }) {
     if (this.closed) return;
     this.closed = true;
-    this.emit('close');
+    this.emit('close', info);
   }
 
   _onData(chunk) {
@@ -131,7 +135,13 @@ class WsConnection extends EventEmitter {
     }
     if (opcode === OP.PONG) return;
     if (opcode === OP.CLOSE) {
-      this.close(1000, '');
+      let code = 1000;
+      let reason = '';
+      if (payload.length >= 2) {
+        code = payload.readUInt16BE(0);
+        reason = payload.subarray(2).toString('utf8');
+      }
+      this.close(code, reason, { source: 'peer-close' });
       return;
     }
 
@@ -186,7 +196,7 @@ class WsConnection extends EventEmitter {
     this._send(OP.TEXT, Buffer.from(text, 'utf8'));
   }
 
-  close(code = 1000, reason = '') {
+  close(code = 1000, reason = '', meta = {}) {
     if (this.closed) return;
     const reasonBuf = Buffer.from(reason, 'utf8');
     const payload = Buffer.allocUnsafe(2 + reasonBuf.length);
@@ -195,7 +205,7 @@ class WsConnection extends EventEmitter {
     this._send(OP.CLOSE, payload);
     this.closed = true;
     this.socket.end();
-    this.emit('close');
+    this.emit('close', { code, reason, source: meta.source ?? 'local-close' });
   }
 }
 

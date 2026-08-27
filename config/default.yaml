@@ -63,6 +63,9 @@ bridge:
   pair_timeout_ms: 120000
   # Thoi gian cho mot lenh CDP tra ve.
   call_timeout_ms: 30000
+  # Khi extension/service worker rot WebSocket giua run, cho no tu noi lai truoc
+  # khi ket luan bridge hong. Khong ap dung cho lan ghep noi dau tien.
+  reconnect_timeout_ms: 10000
 
 search:
   scheme: 'https'                       # chi doi khi test cuc bo
