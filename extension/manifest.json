@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SERP Extractor Bridge",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Mo tab thu thap SERP ngay trong phien lam viec hien tai va noi voi tool SERP Extractor dang chay tren may.",
   "minimum_chrome_version": "116",
   "_comment_key": "Truong 'key' ghim extension id thanh jcacglefgleiajjchmkgjmjkplekgloi tren MOI may. Neu khong co no, Chrome sinh id theo duong dan cai dat, va trang ghep noi (chrome.runtime.sendMessage toi mot id cu the) se khong tim thay extension. KHONG DUOC doi gia tri nay.",
@@ -17,6 +17,7 @@
     "windows",
     "downloads",
     "storage",
+    "scripting",
     "clipboardRead"
   ],
   "host_permissions": [

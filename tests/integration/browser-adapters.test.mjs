@@ -4,7 +4,7 @@
  * Kiem chung phan KHONG the test bang linkedom:
  *   - selector registry (role/text/css) qua Playwright locator
  *   - page.evaluate voi extractor duoc ghep source (composeExtractor)
- *   - state machine AI Mode: Show more -> prompt -> streaming -> on dinh -> markdown
+ *   - state machine AI Overview: Show more -> Paste Prompt -> Load -> Copy
  *   - bat su kien download khi bam Export CSV
  *
  * Tu dong SKIP neu may khong co Chrome hoac khong khoi dong duoc.
@@ -95,9 +95,10 @@ test('browser: AI Overview khong co prompt box thi khong tim thay input', { skip
   });
 });
 
-test('browser: state machine AI Mode xu ly streaming va tra ve markdown', { skip }, async () => {
+test('browser: AI Overview thao tac Show more -> Paste Prompt -> Load -> Copy', { skip }, async () => {
   await withPage(async (page) => {
     await page.goto(fixtureUrl('ai-mode-streaming.html'));
+    page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
 
     const result = await collectAiAnswer({
       page, config: AI_CONFIG, selectors, logger,
@@ -106,9 +107,9 @@ test('browser: state machine AI Mode xu ly streaming va tra ve markdown', { skip
     });
 
     assert.deepEqual(result.states, [
-      'SearchLoaded', 'OverviewFound', 'Expanded', 'PromptBox', 'Submitted', 'ResponseStable', 'Captured',
+      'SearchLoaded', 'OverviewFound', 'Expanded', 'PromptBox', 'Submitted', 'CopyReady', 'Captured',
     ]);
-    assert.equal(result.source, 'google_ai_overview');
+    assert.equal(result.source, 'google_ai_overview_clipboard');
     assert.ok(result.markdown.includes('### Main similarities'));
     assert.ok(result.markdown.includes('**Austronesian**'));
     assert.ok(result.markdown.includes('- Related language families'));
@@ -202,8 +203,9 @@ test('browser: bam Export CSV bat duoc download va CSV parse duoc', { skip }, as
 test('browser: anyPresent nhan dien indicator dang tao noi dung', { skip }, async () => {
   await withPage(async (page) => {
     await page.goto(fixtureUrl('ai-mode-streaming.html'));
+    await page.click('#showmore');
     assert.equal(await anyPresent(page, selectors.ai_prompt_box.generating_markers), false);
-    await page.click('#send');
+    await page.click('#load');
     assert.equal(await anyPresent(page, selectors.ai_prompt_box.generating_markers), true);
   });
 });

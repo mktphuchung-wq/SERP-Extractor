@@ -234,6 +234,7 @@ async function dispatch(method, params) {
     case 'attachTarget': return attachTarget(params);
     case 'detachTarget': return detachTarget(params);
     case 'browserInfo': return browserInfo();
+    case 'readClipboard': return readClipboard(params);
     case 'takeDownload': return takeDownload(params);
     case 'shutdown': return shutdown();
     default:
@@ -321,6 +322,19 @@ async function browserInfo() {
     userAgent: navigator.userAgent,
     windowId: win?.id ?? null,
   };
+}
+
+/** Doc clipboard trong isolated world cua extension tren tab do tool so huu. */
+async function readClipboard({ tabId }) {
+  assertOwned(tabId);
+  const [injected] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      if (!navigator.clipboard?.readText) return '';
+      return navigator.clipboard.readText();
+    },
+  });
+  return { text: typeof injected?.result === 'string' ? injected.result : '' };
 }
 
 /* -------------------------------------------------------------------- CDP */

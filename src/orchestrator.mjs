@@ -317,20 +317,16 @@ async function stepCollectParallel(state) {
   const stagger = config.performance?.stagger_ms ?? 1200;
   state.capturedAt = new Date().toISOString();
 
+  // AI Overview va Ahrefs cung thay doi UI tren SERP va cung dung clipboard.
+  // Cho phep CSV Page 1 chay song song, nhung Ahrefs phai doi AI Copy xong.
+  const aiTask = runParallelTask({ name: 'ai-mode', delay: 0, run: () => taskAi(state) }, logger);
   const tasks = [
-    { name: 'ai-mode', delay: 0, run: () => taskAi(state) },
-    { name: 'ahrefs-paa-csv1', delay: stagger, run: () => taskMainTab(state) },
+    { name: 'ahrefs-paa-csv1', delay: stagger, run: () => taskMainTab(state, aiTask) },
     { name: 'suggestions', delay: stagger * 2, run: () => taskSuggestions(state) },
     { name: 'serp-page-2', delay: stagger * 3, run: () => taskPage2(state) },
   ];
 
-  await Promise.all(tasks.map(async (task) => {
-    if (task.delay) await sleep(task.delay);
-    logger.debug(`Bat dau nhom "${task.name}"`);
-    const result = await softly(task.name, task.run, logger);
-    logger.info(`Xong nhom "${task.name}"${result.ok ? '' : ' (co loi, xem canh bao)'}`);
-    return result;
-  }));
+  await Promise.all([aiTask, ...tasks.map((task) => runParallelTask(task, logger))]);
 
   applyDefaultsForMissingBlocks(state);
 }
@@ -348,6 +344,7 @@ async function taskAi(state) {
       logger: state.logger,
       keyword: state.keyword,
       prompt: state.prompt,
+      lock: state.activeTabLock,
     });
     setAiResult(state, value);
   } finally {
@@ -355,7 +352,15 @@ async function taskAi(state) {
   }
 }
 
-async function taskMainTab(state) {
+async function runParallelTask(task, logger) {
+  if (task.delay) await sleep(task.delay);
+  logger.debug(`Bat dau nhom "${task.name}"`);
+  const result = await softly(task.name, task.run, logger);
+  logger.info(`Xong nhom "${task.name}"${result.ok ? '' : ' (co loi, xem canh bao)'}`);
+  return result;
+}
+
+async function taskMainTab(state, aiTask = null) {
   const args = {
     page: state.page,
     config: state.config,
@@ -380,6 +385,11 @@ async function taskMainTab(state) {
     keyword: state.keyword,
   }), state.logger);
   setPage1(state, page1.value);
+
+  if (aiTask) {
+    state.logger.info('Cho AI Overview Copy xong truoc khi thao tac Ahrefs widget.');
+    await aiTask;
+  }
 
   const ideas = await softly('keyword-ideas', () => collectKeywordIdeas(args), state.logger);
   setKeywordIdeas(state, ideas.value);

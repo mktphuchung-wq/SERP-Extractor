@@ -72,16 +72,24 @@ ai_overview:
   embedded_target_url: '(?i)^https?://([a-z0-9-]+\.)*google\.[a-z.]+/search'
 
 ai_prompt_box:
-  selector_version: '2026-08-21.1'
+  selector_version: '2026-08-27.1'
   input:
-    - { type: role, role: textbox, name: '(?i)(ask anything|ask a follow.?up|ask ai mode)' }
+    - { type: role, role: textbox, name: '(?i)(paste prompt|ask anything|ask a follow.?up|ask ai mode)' }
+    - { type: css, css: "textarea[aria-label*='Paste Prompt' i], input[aria-label*='Paste Prompt' i]" }
+    - { type: css, css: "textarea[placeholder*='Paste Prompt' i], input[placeholder*='Paste Prompt' i]" }
+    - { type: css, css: "textarea[placeholder*='Ask' i], input[placeholder*='Ask' i]" }
     - { type: css, css: "textarea[aria-label*='Ask' i]" }
     - { type: css, css: "div[contenteditable='true'][role='textbox']" }
     - { type: css, css: "textarea[name='q'][aria-label*='ai' i]" }
   submit:
-    - { type: role, role: button, name: '(?i)^(send|submit|ask)$' }
+    - { type: role, role: button, name: '(?i)^(load|send|submit|ask)$' }
+    - { type: css, css: "button[aria-label='Load' i]" }
     - { type: css, css: "button[aria-label*='Send' i]" }
     - { type: css, css: "button[type='submit']" }
+  copy_button:
+    - { type: role, role: button, name: '(?i)^copy$' }
+    - { type: css, css: "button[aria-label='Copy' i]" }
+    - { type: text, text: '(?i)^copy$' }
   response_container:
     - { type: css, css: '[data-rp-response]' }
     - { type: css, css: "[data-subtree='aimc']" }

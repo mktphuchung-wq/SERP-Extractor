@@ -8,7 +8,9 @@
  * canh banh ro rang trong section va danh dau run la COMPLETED_WITH_WARNINGS.
  */
 import { createMachine } from '../core/state-machine.mjs';
-import { firstVisible, anyPresent, describeSpec } from '../browser/locator.mjs';
+import {
+  firstVisible, anyPresent, buildLocator, describeSpec,
+} from '../browser/locator.mjs';
 import { normalizeMarkdownBlock, toRegExp } from '../core/text.mjs';
 import { sleep } from '../core/retry.mjs';
 import { WARNING_CODES } from '../core/errors.mjs';
@@ -63,7 +65,7 @@ export async function collectAiAnswer(args) {
             perSpec: 2000, logger, block: 'ai_overview.show_more',
           });
           if (showMore) {
-            await showMore.locator.click({ timeout: 5000 }).catch(() => {});
+            await lock.run(() => showMore.locator.click({ timeout: 5000 })).catch(() => {});
             logger?.info('Da bam "Show more" trong AI Overview.');
             await sleep(1200);
           }
@@ -76,15 +78,24 @@ export async function collectAiAnswer(args) {
           const input = await firstVisible(ctx.overview, promptSel.input, {
             timeout: 8000, perSpec: 2000, logger, block: 'ai_prompt_box.input',
           });
-          if (input) return { to: 'PromptBox', input: input.locator, source: 'google_ai_overview' };
+          if (input) {
+            return {
+              to: 'PromptBox', input: input.locator, surface: ctx.overview, source: 'google_ai_overview',
+            };
+          }
 
           // Google co the render hop prompt ngoai node container ma selector
           // AI Overview da bat duoc, nen thu lai tren toan trang SERP.
           const pageInput = await firstVisible(page, promptSel.input, {
             timeout: 8000, perSpec: 2000, logger, block: 'ai_prompt_box.input',
           });
-          if (pageInput) return { to: 'PromptBox', input: pageInput.locator, source: 'google_ai_overview' };
+          if (pageInput) {
+            return {
+              to: 'PromptBox', input: pageInput.locator, surface: page, source: 'google_ai_overview',
+            };
+          }
 
+          await saveAiControls(page, logger);
           await logger?.screenshot(page, 'ai-overview-khong-co-o-nhap-prompt');
           logger?.warn('Da bam Show more nhung khong tim thay o nhap prompt tren SERP.', {
             code: WARNING_CODES.AI_MODE_UNAVAILABLE,
@@ -102,7 +113,7 @@ export async function collectAiAnswer(args) {
             await ctx.input.fill(prompt, { timeout: 10000 });
             await sleep(400);
 
-            const load = await firstVisible(page, promptSel.submit, {
+            const load = await firstVisible(ctx.surface, promptSel.submit, {
               timeout: 8000, perSpec: 1600, logger, block: 'ai_prompt_box.submit',
             });
             if (!load) return false;
@@ -124,11 +135,28 @@ export async function collectAiAnswer(args) {
 
       Submitted: {
         async run(ctx) {
-          const copy = await waitForCopyButton(page, promptSel, {
-            timeoutMs: aiCfg.response_timeout_ms ?? 120000,
-            pollMs: aiCfg.poll_interval_ms ?? 750,
+          const timeoutMs = aiCfg.response_timeout_ms ?? 120000;
+          const pollMs = aiCfg.poll_interval_ms ?? 750;
+          let surface = ctx.surface;
+          let copy = await waitForCopyButton(surface, promptSel, {
+            timeoutMs: Math.min(timeoutMs, 15000), pollMs,
           });
+
+          // Sau khi gui prompt, Google co the chuyen giao dien hoi dap sang
+          // target con. Thu bam lai surface do truoc khi cho het timeout con lai.
+          if (!copy && await adoptAiSurface(page, overviewSel, logger)) {
+            surface = page;
+            copy = await waitForCopyButton(surface, promptSel, {
+              timeoutMs: Math.max(1000, timeoutMs - 15000), pollMs,
+            });
+          } else if (!copy) {
+            copy = await waitForCopyButton(surface, promptSel, {
+              timeoutMs: Math.max(1000, timeoutMs - 15000), pollMs,
+            });
+          }
           if (!copy) {
+            await saveAiControls(page, logger, 'ai-overview-after-load-controls');
+            logger?.info(`URL sau khi bam Load: ${await currentUrl(page)}`);
             logger?.warn('Het thoi gian cho nut "Copy" cua AI Overview.', {
               code: WARNING_CODES.AI_RESPONSE_TIMEOUT,
             });
@@ -197,6 +225,54 @@ async function currentUrl(page) {
     if (url) return url;
   }
   return page.url();
+}
+
+/** Cho nut Copy cua cau tra loi xuat hien sau khi bam Load. */
+async function waitForCopyButton(scope, promptSel, opts) {
+  const deadline = Date.now() + opts.timeoutMs;
+  while (Date.now() < deadline) {
+    for (const spec of promptSel.copy_button ?? []) {
+      try {
+        const locator = buildLocator(scope, spec)?.first();
+        if (!locator) continue;
+        await locator.waitFor({ state: 'visible', timeout: Math.min(opts.pollMs, 1000) });
+        return { locator, spec };
+      } catch { /* cau tra loi chua san sang */ }
+    }
+    await sleep(opts.pollMs);
+  }
+  return null;
+}
+
+/** Doc noi dung do nut Copy vua ghi, uu tien quyen cua bridge extension. */
+async function readClipboardText(page) {
+  if (typeof page.readClipboardText === 'function') {
+    const text = await page.readClipboardText().catch(() => '');
+    if (text) return text;
+  }
+  return page.evaluate(async () => {
+    if (!navigator.clipboard?.readText) return '';
+    return navigator.clipboard.readText();
+  }).catch(() => '');
+}
+
+/** Luu cac control dang hien thi de sua selector theo DOM that, khong theo anh. */
+async function saveAiControls(page, logger, name = 'ai-overview-visible-controls') {
+  const html = await page.evaluate(() => {
+    const css = [
+      'button', '[role="button"]', 'input', 'textarea', '[role="textbox"]',
+      '[contenteditable="true"]', '[aria-label]', '[placeholder]',
+    ].join(',');
+    const controls = Array.from(document.querySelectorAll(css)).filter((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0
+        && style.display !== 'none' && style.visibility !== 'hidden';
+    });
+    return controls.map((el) => el.outerHTML).join('\n');
+  }).catch(() => '');
+  const file = logger?.saveHtmlSnippet(name, html);
+  if (file) logger?.info(`Da luu DOM control AI Overview: ${file}`);
 }
 
 /**
@@ -351,4 +427,7 @@ export function trimTrailingUi(markdown, stopMarkers) {
   return kept.join('\n').trim();
 }
 
-export const _internals = { findResponseLocator, countResponseBlocks, describeSpec, findPromptBox, adoptAiSurface };
+export const _internals = {
+  findResponseLocator, countResponseBlocks, describeSpec, findPromptBox, adoptAiSurface,
+  waitForCopyButton, readClipboardText,
+};

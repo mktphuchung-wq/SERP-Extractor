@@ -256,6 +256,12 @@ export class RemotePage {
     return this._url;
   }
 
+  /** Doc clipboard bang quyen clipboardRead cua bridge extension. */
+  async readClipboardText() {
+    const result = await this._bridge.call('readClipboard', { tabId: this._tabId });
+    return result?.text ?? '';
+  }
+
   /* ---------------------------------------------------------------- script */
 
   /**

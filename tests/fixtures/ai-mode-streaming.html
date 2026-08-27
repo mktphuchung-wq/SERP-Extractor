@@ -1,5 +1,4 @@
-<!-- Fixture: AI Mode co o nhap prompt; sau khi submit thi cau tra loi duoc "stream"
-     dan ra kem indicator dang tao noi dung. Dung de test state machine AI Mode that. -->
+<!-- Fixture: dung luong thao tac that tren SERP: Show more -> Paste Prompt -> Load -> Copy. -->
 <html>
 <body>
   <div id="search">
@@ -8,12 +7,12 @@
         <div role="heading" aria-level="2">AI Overview</div>
         <div class="ai-body"><p>Short AI Overview text before expanding.</p></div>
         <div role="button" aria-expanded="false" id="showmore">Show more</div>
-        <div class="ai-follow-up">
-          <textarea aria-label="Ask anything" id="promptbox"></textarea>
-          <button aria-label="Send" id="send">Send</button>
+        <div class="ai-follow-up" hidden>
+          <textarea aria-label="Paste Prompt" id="promptbox"></textarea>
+          <button aria-label="Load" id="load">Load</button>
         </div>
+        <div id="responses"></div>
       </div>
-      <div id="responses"></div>
     </div>
   </div>
 
@@ -27,10 +26,11 @@
 
     document.getElementById('showmore').addEventListener('click', function () {
       this.setAttribute('aria-expanded', 'true');
+      document.querySelector('.ai-follow-up').hidden = false;
       document.querySelector('.ai-body').innerHTML += '<p>Expanded extra overview paragraph.</p>';
     });
 
-    document.getElementById('send').addEventListener('click', function () {
+    document.getElementById('load').addEventListener('click', function () {
       var host = document.getElementById('responses');
       var block = document.createElement('div');
       block.setAttribute('data-rp-response', '1');
@@ -45,6 +45,22 @@
         if (i >= CHUNKS.length) {
           clearInterval(timer);
           spinner.remove();
+          var copy = document.createElement('button');
+          copy.setAttribute('aria-label', 'Copy');
+          copy.textContent = 'Copy';
+          copy.addEventListener('click', function () {
+            window.__copiedText = [
+              '### Main similarities',
+              '',
+              'Both peoples share **Austronesian** ancestry.',
+              '',
+              '- Related language families',
+              '- Island geography',
+              '',
+              'Read [this study](https://source.example.com/study).'
+            ].join('\n');
+          });
+          host.appendChild(copy);
           return;
         }
         block.innerHTML += CHUNKS[i];
