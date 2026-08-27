@@ -51,7 +51,7 @@ SERP Extractor\
 ├── src\
 │   ├── cli.mjs           ← parse argv, batch nhiều keyword, diagnose, exit code
 │   ├── setup.mjs         ← cổng kiểm tra/cài đặt lần đầu
-│   ├── orchestrator.mjs  ← state machine cấp run, 2 chế độ song song/tuần tự
+│   ├── orchestrator.mjs  ← state machine cấp run, workflow tuần tự cố định
 │   ├── smoke.mjs         ← smoke test định kỳ, ghi ra thư mục tạm
 │   ├── browser\   chrome-launcher · cdp-connector · extension-discovery · locator · page-eval
 │   ├── adapters\  google-search · ai-mode · ahrefs-widget · paa · suggestions · serp-export
@@ -131,7 +131,7 @@ node -e "const fs=require('fs');for(const f of fs.readdirSync('.').filter(n=>n.t
 | `<ai prompt>` | Vị trí 2. Nhiều prompt ngăn bằng `;` | `parsePromptList` |
 | `--config <file>` | File config thay thế | `loadConfig` |
 | `--overwrite` | Cho ghi đè output (có backup) | `resolveOutputDir` |
-| `--sequential` / `--parallel` | Ép chế độ chạy | `resolveParallelMode` |
+| `--sequential` / `--parallel` | Tương thích lệnh cũ; không đổi workflow cố định | parser CLI |
 | `--no-open` | Không mở Notepad | `openInEditor` |
 | `--setup` | Chạy riêng cài đặt rồi thoát | `runFirstTimeSetup` |
 | `--skip-setup` | Bỏ qua cổng setup | `ensureReady` |
@@ -290,49 +290,27 @@ Nhờ cách ghép source này, **cùng một hàm** chạy được trong Chrome
 
 ---
 
-## 6. Orchestrator: hai chế độ chạy
+## 6. Orchestrator: workflow tuần tự cố định
 
-`resolveParallelMode()`: `options.parallel` (cờ CLI) → `config.performance.parallel_steps` → mặc định `true`.
-
-### 6.1 Chế độ SONG SONG (mặc định, 5 step)
+Workflow luôn có 8 step. Các cờ `--parallel` / `--sequential` vẫn được parser nhận để tương thích
+với shortcut hoặc script cũ, nhưng không thay đổi thứ tự chạy.
 
 ```mermaid
 flowchart TD
-    S1[1/5 Khởi động Chrome + verify profile + quét extension] --> S2[2/5 Mở SERP Page 1 + kiểm tra thị trường US]
-    S2 --> S3[3/5 Thu thập song song]
-    S3 --> T1[Tab chính: Ahrefs Ideas → PAA → CSV Page 1]
-    S3 --> T2[Tab 2: AI Mode]
-    S3 --> T3[Tab 3: Suggestions]
-    S3 --> T4[Tab 4: CSV Page 2 start=10]
-    T1 --> S4[4/5 Đánh số lại Page 2 + kiểm tra trùng]
-    T2 --> S4
-    T3 --> S4
-    T4 --> S4
-    S4 --> S5[5/5 Ghi file + quality gate + thông báo]
+    S1[1/8 Kết nối Chrome + quét extension] --> S2[2/8 Mở SERP Page 1 + kiểm tra thị trường US]
+    S2 --> S3[3/8 Google Search Suggestions]
+    S3 --> S4[4/8 Ahrefs Keywords Ideas]
+    S4 --> S5[5/8 Ahrefs PAA]
+    S5 --> S6[6/8 CSV Page 1 rồi Page 2]
+    S6 --> S7[7/8 Nạp lại Page 1: Show more → Prompt → Load → Copy answer]
+    S7 --> S8[8/8 Ghi file + quality gate + thông báo]
 ```
 
-- Các tab mở lệch nhau `performance.stagger_ms` (mặc định 1200ms), theo thứ tự
-  `ai-mode` → `ahrefs-paa-csv1` → `suggestions` → `serp-page-2`.
-- Mỗi nhóm bọc trong `softly()` → một nhóm hỏng không làm vỡ run.
-- Nhóm nào không trả dữ liệu → `applyDefaultsForMissingBlocks()` điền giá trị mặc định + cảnh báo.
+Thứ tự trên là contract của workflow. Nó tránh tranh chấp tab active và clipboard giữa Ahrefs/AI,
+đồng thời bảo đảm hai CSV hoàn tất trước khi AI Overview thay đổi DOM. `pauseLock` vẫn bảo vệ hộp
+thoại thao tác tay khi gặp CAPTCHA hoặc login.
 
-**Hai khóa (`src/core/mutex.mjs`):**
-
-| Khóa | Bảo vệ | Tạo khi |
-| --- | --- | --- |
-| `activeTabLock` | Mọi việc phụ thuộc tab đang active: popup extension, `bringToFront`, đọc clipboard, mở dropdown gợi ý | Chế độ song song (`NO_LOCK` khi tuần tự) |
-| `pauseLock` | Hộp thoại chờ thao tác tay — chỉ hiện **một** lần dù nhiều tab cùng gặp CAPTCHA | Luôn |
-
-`pauseLock` còn có cửa sổ 30 giây: tab nào gặp lỗi sau khi tab khác vừa xử lý xong thì thử lại luôn,
-không hỏi lại người dùng.
-
-### 6.2 Chế độ TUẦN TỰ (8 step)
-
-Đúng thứ tự đặc tả gốc: Chrome → SERP → AI → Keywords Ideas → PAA → Suggestions → CSV → Ghi file.
-Sau bước AI có thêm việc **quay lại SERP Page 1** vì AI Mode có thể điều hướng đi nơi khác
-(chế độ song song không cần vì AI chạy ở tab riêng).
-
-### 6.3 Đánh số Page 2
+### 6.1 Đánh số Page 2
 
 Google thường bỏ qua `num=10` và trả nhiều hơn 10 kết quả ở Page 1.
 
@@ -342,11 +320,10 @@ nextPagePositionOffset(page1Rows, resultsPerPage) = max(resultsPerPage, page1Row
 
 - **URL luôn dùng `start=<results_per_page>`** và được `verifySerpUrl` kiểm tra lại.
 - Chỉ **vị trí trong CSV** mới dịch theo số dòng thật của Page 1.
-- Song song: Page 2 trích xuất với `startOffset: 0` rồi `renumberPositions()` sau khi biết số dòng Page 1.
-  **Chỉ đánh số lại CSV canonical do tool sinh** (`source === 'native_serp_dom'`), không đụng CSV gốc của extension.
+- Page 2 được trích xuất sau Page 1 nên dùng ngay offset đã tính từ số dòng thật của Page 1.
 - Page 1 nhiều hơn `num` → cảnh báo `SERP_MORE_RESULTS_THAN_EXPECTED`.
 
-### 6.4 Retry và pause
+### 6.2 Retry và pause
 
 `runStep(state, name, fn)` bọc `withRetry`:
 
@@ -697,8 +674,8 @@ Thứ tự merge: `config/default.yaml` → `config/local.yaml` (nếu có) → 
 | `notifications.open_result` | `true` | Mở `.md` bằng Notepad |
 | `notifications.open_result_with` | `notepad.exe` | |
 | `notifications.open_batch_summary` | `true` | |
-| `performance.parallel_steps` | `true` | |
-| `performance.stagger_ms` | `1200` | |
+| `performance.parallel_steps` | `false` | Giữ để tương thích config cũ; workflow vẫn tuần tự cố định |
+| `performance.stagger_ms` | `1200` | Không dùng trong workflow cố định |
 | `performance.keyword_concurrency` | `1` | **Cố định 1**, code chưa hỗ trợ khác |
 | `privacy.redact_logs` | `true` | |
 | `privacy.hint_personal_chrome` | `true` | Cảnh báo cài nhầm profile |
@@ -773,7 +750,7 @@ Test cần Chrome tự **skip** nếu máy không có Chrome.
 | `integration/browser-adapters` (8) | Locator, `page.evaluate`, download — **Chrome thật** | `browser/locator.mjs`, `page-eval.mjs` |
 | `integration/attach-profile` (3) | Attach cửa sổ có sẵn, `PROFILE_MISMATCH` — **Chrome thật** | `browser/chrome-launcher.mjs`, `cdp-connector.mjs` |
 | `integration/e2e-local` (2) | Trọn orchestrator trên SERP giả lập — **Chrome thật** | `orchestrator.mjs` |
-| `integration/e2e-parallel-batch` (2) | Song song ≡ tuần tự, nhiều keyword — **Chrome thật** | `orchestrator.mjs`, `core/input.mjs` |
+| `integration/e2e-parallel-batch` (2) | Cờ legacy cùng dùng workflow cố định, nhiều keyword — **Chrome thật** | `orchestrator.mjs`, `core/input.mjs` |
 
 ### 13.1 Hạ tầng test
 
@@ -796,7 +773,7 @@ Test cần Chrome tự **skip** nếu máy không có Chrome.
 | # | Đặc tả gốc | Hiện trạng | Lý do |
 | --- | --- | --- | --- |
 | 1 | `SETUP.bat` rồi `RUN.bat` | `RUN.bat` gộp cả hai | Yêu cầu người dùng; `SETUP.bat` giữ làm lối tắt |
-| 2 | Chạy tuần tự 8 step | Mặc định song song 5 step | Yêu cầu tối ưu tốc độ; đo được nhanh hơn ~31% |
+| 2 | Chạy tuần tự 8 step | Tuần tự cố định: Suggestions → Ahrefs → 2 CSV → AI Overview | Đồng bộ với thao tác thật và tránh tranh chấp focus/clipboard |
 | 3 | Một keyword mỗi run | Nhiều keyword ngăn bằng `;`, chạy tuần tự | Yêu cầu người dùng; vẫn giữ ràng buộc "không song song giữa các keyword" |
 | 4 | Page 2 vị trí 11-20 | Page 2 bắt đầu sau số dòng thật của Page 1 | Google bỏ qua `num=10`, trả 20 kết quả ở Page 1 |
 | 5 | Không nói về gợi ý cá nhân | Loại gợi ý có nút Delete | Run thật cho thấy toàn bộ là lịch sử tìm kiếm, không phải suggestions |
@@ -849,19 +826,18 @@ cùng `FALLBACK_SOURCES` trong `src/smoke.mjs` nếu đó là fallback.
 2. `buildMarkdown()` thêm `section(...)`.
 3. `validateMarkdown()` tự dùng `REQUIRED_HEADINGS` nên không phải sửa.
 4. Cập nhật `unit/markdown-builder.test.mjs` và `unit/validator.test.mjs`.
-5. Orchestrator: thêm một step (tuần tự) hoặc một task (song song) + `setXxx()` gom kết quả.
+5. Orchestrator: thêm phase vào `ORDERED_COLLECTION_STEPS` đúng vị trí phụ thuộc + `setXxx()` gom kết quả.
 
-### 16.4 Thêm một nhóm chạy song song
+### 16.4 Thêm một phase thu thập
 
-Trong `stepCollectParallel()`, thêm phần tử vào mảng `tasks` với `delay` tăng dần.
-Nếu nhóm đó cần tab đang active → bọc `state.activeTabLock.run(...)`.
-Nếu cần tab riêng → dùng `newTab(state)` / `closeTab(state, page)` để tab được dọn ở `finally`.
+Tạo hàm `stepXxx(state)` rồi thêm vào `ORDERED_COLLECTION_STEPS`. Giữ workflow tuần tự nếu phase
+dùng tab active, clipboard, extension widget hoặc làm thay đổi DOM của SERP.
 
 ### 16.5 Hỗ trợ số trang khác 2
 
 Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng cần sửa đồng bộ:
 `validateOutputFolder()` (danh sách file mong đợi), `writeStagingArtifacts()`,
-`stepSerpPages()`/`stepFinishSerpPages()`, và quy ước đặt tên file.
+`stepSerpPages()`/`collectPage2Sequential()`, và quy ước đặt tên file.
 
 ### 16.6 Chạy song song nhiều keyword
 
@@ -876,8 +852,8 @@ Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng c
 | --- | --- |
 | Section `## AI Mode` trống | `selectors.ai_overview.container` → xem `SELECTOR_DRIFT` trong log |
 | AI Mode lấy nhầm nội dung UI | `selectors.ai_prompt_box.response_stop_markers`, `exclude_in_response` |
-| AI Mode timeout | `ai.response_timeout_ms`, `ai.stable_ms`, `generating_markers` |
-| AI Mode lấy nhầm câu trả lời cũ | `countResponseBlocks`/`findResponseLocator` trong `adapters/ai-mode.mjs` |
+| AI Mode timeout | Kiểm tra DOM `Copy text`, `ai.response_timeout_ms`, `ai_prompt_box.copy_button` |
+| AI Mode lấy nhầm prompt | Selector answer phải khớp chính xác `Copy text`, không dùng prefix `Copy` |
 | Keywords Ideas trống | `selectors.ahrefs_widget.*`; kiểm tra đã đăng nhập Ahrefs chưa |
 | Keywords Ideas lẫn chữ UI | `selectors.ahrefs_widget.ui_noise` |
 | PAA trống hoặc lệch chủ đề | `selectors.google_paa`; lưu ý PAA của Google vốn hay trôi chủ đề |
@@ -887,29 +863,29 @@ Hiện đang cố định 2 vì output bắt buộc 3 file. Muốn mở rộng c
 | CSV lẫn quảng cáo | `selectors.native_serp.exclude_containers` / `exclude_text_anchors` |
 | CSV thiếu kết quả | `findBlock()` trong `extractors/native-serp.mjs` |
 | CSV sai cột | `CANONICAL_CSV_HEADER`, `extractors/csv-normalizer.mjs` |
-| Page 2 trùng Page 1 | `stepFinishSerpPages()`; thường do Google giới hạn |
+| Page 2 trùng Page 1 | `stepSerpPages()` / `collectPage2Sequential()`; thường do Google giới hạn |
 | Sai tên file/thư mục | `core/sanitize.mjs` |
 | Không mở được Chrome | `browser/chrome-launcher.mjs`, chạy `DIAGNOSE.bat` |
 | `PROFILE_MISMATCH` | `browser/cdp-connector.mjs`; đóng Chrome đang giữ cổng debug |
 | Extension báo thiếu dù đã cài | `browser/extension-discovery.mjs`; kiểm tra cài đúng profile chưa |
-| Chạy chậm | `performance.parallel_steps`, `stagger_ms`, `search.min/max_delay_ms` |
+| Chạy chậm | Đo timing từng phase; kiểm tra `search.min/max_delay_ms` và timeout AI |
 | Quality gate fail | `output/validator.mjs`; staging được giữ lại để xem |
 
 ---
 
 ## 18. Nợ kỹ thuật và phần chưa kiểm chứng
 
-### 18.1 Chưa chạy thật lần nào
+### 18.1 Trạng thái kiểm chứng thật
 
 | Hạng mục | Trạng thái |
 | --- | --- |
-| Toàn bộ nhánh **extension-first** | Chỉ test bằng fixture. Profile automation chưa có extension nào |
-| Ahrefs Keywords Ideas | Chưa có dữ liệu thật lần nào |
+| Ahrefs Keywords Ideas + PAA | Đã lấy thật qua nút Copy/clipboard ngày 2026-08-27 |
+| Suggestions → Ahrefs → 2 CSV | Đã xác nhận đúng thứ tự trên Google thật ngày 2026-08-27 |
 | Kích hoạt SEO SERP Extraction Tool qua popup manifest | Chưa biết có hoạt động không khi popup mở ở tab khác |
 | Bắt download CSV của extension | Đã test với trang giả lập, chưa test với extension thật |
 | Pause/resume CAPTCHA & login | Run thật chưa gặp CAPTCHA |
-| Chế độ song song với Google thật | Run thật gần nhất chạy tuần tự. Lần đầu 4 tab cùng mở Google chưa được kiểm chứng |
-| Launcher gộp + `OPEN_CHROME.bat` | Chưa chạy với Google thật |
+| AI Overview Page 1 | Đã kiểm tra trực tiếp Show more → Prompt → Load; Copy answer có test DOM thật và hồi quy Chrome |
+| Launcher gộp + `OPEN_CHROME.bat` | Đã chạy với Chrome thật qua bridge |
 | Nghiệm thu 8/10 keyword (mục 16.15 đặc tả gốc) | Mới chạy 1/10 |
 
 ### 18.2 Điểm yếu đã biết trong code

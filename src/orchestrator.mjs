@@ -1,15 +1,13 @@
 /**
  * Orchestrator: state machine cap run, dieu phoi toan bo workflow Step 0 -> Step 10.
  *
- * Hai che do chay:
- *  - PARALLEL (mac dinh): cac buoc KHONG phu thuoc nhau chay dong thoi tren
- *    cac tab rieng => giam manh thoi gian chay (AI Mode thuong chiem 60-70% tong thoi gian).
- *  - SEQUENTIAL: chay lan luot nhu dac ta mo ta, dung khi can debug hoac khi
- *    Google/extension nhay cam voi nhieu tab.
+ * Workflow co dinh theo phu thuoc cua giao dien that:
+ *   Suggestions -> Ahrefs Keywords Ideas -> Ahrefs PAA -> 2 CSV
+ *   -> AI Overview Page 1 -> Show more -> Prompt -> Copy answer.
  *
- * Nhung viec PHU THUOC TAB DANG ACTIVE (mo popup extension, doc clipboard,
- * bringToFront) luon duoc bao ve bang mot mutex, du o che do song song,
- * de khong lay nham du lieu giua cac tab.
+ * Ahrefs va AI cung dung clipboard va tab dang active. Chay theo phase giup
+ * khong doc nham clipboard, khong mat focus va khong lam thay doi DOM truoc
+ * khi phase truoc da hoan tat.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,7 +17,7 @@ import {
 } from './core/errors.mjs';
 import { RunLogger } from './core/logger.mjs';
 import { buildRunId, sanitizeFileBase, resolveOutputDir, timestampStamp } from './core/sanitize.mjs';
-import { withRetry, softly, humanDelay, sleep } from './core/retry.mjs';
+import { withRetry, softly, humanDelay } from './core/retry.mjs';
 import { waitForEnter, isInteractive } from './core/prompt.mjs';
 import { Mutex, NO_LOCK } from './core/mutex.mjs';
 
@@ -35,7 +33,7 @@ import { collectPaa } from './adapters/paa.mjs';
 import { collectSuggestions } from './adapters/suggestions.mjs';
 import { collectSerpCsv, nextPagePositionOffset } from './adapters/serp-export.mjs';
 
-import { areCsvIdentical, renumberPositions } from './extractors/csv-normalizer.mjs';
+import { areCsvIdentical } from './extractors/csv-normalizer.mjs';
 import { buildMarkdown } from './output/markdown-builder.mjs';
 import { writeStagingArtifacts, moveToOutput, cleanStaging } from './output/artifact-writer.mjs';
 import { validateRun } from './output/validator.mjs';
@@ -43,7 +41,14 @@ import { buildManifest, writeManifest, collectSelectorVersions } from './output/
 import { notify, notifyFailure, openInEditor, openFolder } from './output/notifier.mjs';
 
 const STEPS_SEQUENTIAL = 8;
-const STEPS_PARALLEL = 5;
+const ORDERED_COLLECTION_STEPS = Object.freeze([
+  { name: 'suggestions', run: stepSuggestions },
+  { name: 'ahrefs-keyword-ideas', run: stepKeywordIdeas },
+  { name: 'ahrefs-paa', run: stepPaa },
+  { name: 'serp-page-1-and-page-2', run: stepSerpPages },
+  { name: 'ai-overview-page-1', run: stepAi },
+]);
+export const WORKFLOW_PHASES = Object.freeze(ORDERED_COLLECTION_STEPS.map((phase) => phase.name));
 
 /**
  * @param {{keyword:string, prompt:string, config:object, selectors:object, options?:object}} args
@@ -57,7 +62,6 @@ export async function runWorkflow(args) {
   if (!keyword) throw new AppError('INVALID_INPUT', 'Keyword khong duoc de trong.');
   if (!prompt) throw new AppError('INVALID_INPUT', 'AI prompt khong duoc de trong.');
 
-  const parallel = resolveParallelMode(config, options);
   const startedAt = new Date();
   const runId = buildRunId(keyword, startedAt);
   const logDir = path.join(config.output.logs_root, runId);
@@ -83,7 +87,7 @@ export async function runWorkflow(args) {
 
   logger.info(`Run ID: ${runId}`);
   logger.info(`Keyword: ${keyword}`);
-  logger.info(`Che do: ${parallel ? 'SONG SONG' : 'TUAN TU'}`);
+  logger.info('Che do: TUAN TU CO DINH (Suggestions -> Ahrefs -> 2 CSV -> AI Overview)');
   logger.info(`Thu muc ket qua: ${resolved.dir}`);
   if (resolved.conflict) {
     logger.warn(`Thu muc goc da ton tai, ap dung chinh sach "${config.output.on_conflict}".`, {
@@ -101,11 +105,8 @@ export async function runWorkflow(args) {
     folderBase: resolved.base,
     outputDir: resolved.dir,
     sources: {}, counts: {}, warnings: [], extensions: {},
-    parallel,
-    totalSteps: parallel ? STEPS_PARALLEL : STEPS_SEQUENTIAL,
-    activeTabLock: parallel ? new Mutex('active-tab') : NO_LOCK,
+    totalSteps: STEPS_SEQUENTIAL,
     pauseLock: new Mutex('manual-pause'),
-    extraPages: [],
   };
 
   // --capture-dom: chup DOM that de soan selector tu bang chung
@@ -124,16 +125,7 @@ export async function runWorkflow(args) {
     await stepStartBrowser(state, (s) => { engineSession = s; }, options);
     await stepOpenSerp(state);
 
-    if (parallel) {
-      await stepCollectParallel(state);
-      await stepFinishSerpPages(state);
-    } else {
-      await stepAi(state);
-      await stepKeywordIdeas(state);
-      await stepPaa(state);
-      await stepSuggestions(state);
-      await stepSerpPages(state);
-    }
+    for (const phase of ORDERED_COLLECTION_STEPS) await phase.run(state);
 
     return await stepWriteAndValidate(state, options);
   } catch (err) {
@@ -170,18 +162,11 @@ export async function runWorkflow(args) {
       const reportPath = state.capture?.finish();
       if (reportPath) announceCapture(state, reportPath, options);
     } catch { /* khong lam hong run */ }
-    await closeExtraTabs(state);
     // close() cua engine chi dong nhung tab do tool mo va ngat cau noi.
     // Voi engine bridge, trinh duyet cua nguoi dung KHONG bi dong.
     if (engineSession) await engineSession.close().catch(() => {});
     await logger.close();
   }
-}
-
-function resolveParallelMode(config, options) {
-  if (options.parallel === false) return false;
-  if (options.parallel === true) return true;
-  return config.performance?.parallel_steps !== false;
 }
 
 /* ------------------------------------------------------------------ Step 1 */
@@ -302,215 +287,16 @@ async function stepOpenSerp(state) {
   state.sources.market_verified = Boolean(market.value?.verified);
 }
 
-/* --------------------------------------------------- Step 3 (che do song song) */
-/**
- * Cac nhom viec doc lap nhau, moi nhom mot tab rieng:
- *   T1  tab chinh   : Ahrefs Keywords Ideas -> PAA -> CSV Page 1  (cung widget/tab nen phai tuan tu)
- *   T2  tab moi     : AI Mode
- *   T3  tab moi     : Google Search Suggestions
- *   T4  tab moi     : CSV Page 2 (start=10)
- */
-async function stepCollectParallel(state) {
-  const { config, logger } = state;
-  logger.step(3, state.totalSteps, 'Thu thap song song (AI Mode, Ahrefs, PAA, Suggestions, CSV)...');
-
-  const stagger = config.performance?.stagger_ms ?? 1200;
-  state.capturedAt = new Date().toISOString();
-
-  // AI Overview va Ahrefs cung thay doi UI tren SERP va cung dung clipboard.
-  // Cho phep CSV Page 1 chay song song, nhung Ahrefs phai doi AI Copy xong.
-  const aiTask = runParallelTask({ name: 'ai-mode', delay: 0, run: () => taskAi(state) }, logger);
-  const tasks = [
-    { name: 'ahrefs-paa-csv1', delay: stagger, run: () => taskMainTab(state, aiTask) },
-    { name: 'suggestions', delay: stagger * 2, run: () => taskSuggestions(state) },
-    { name: 'serp-page-2', delay: stagger * 3, run: () => taskPage2(state) },
-  ];
-
-  await Promise.all([aiTask, ...tasks.map((task) => runParallelTask(task, logger))]);
-
-  applyDefaultsForMissingBlocks(state);
-}
-
-async function taskAi(state) {
-  const page = await newTab(state);
-  try {
-    await runStep(state, 'open-serp-for-ai', async () => {
-      await openSerp(page, state.page1Url, state);
-    });
-    const value = await collectAiAnswer({
-      page,
-      config: state.config,
-      selectors: state.selectors,
-      logger: state.logger,
-      keyword: state.keyword,
-      prompt: state.prompt,
-      lock: state.activeTabLock,
-    });
-    setAiResult(state, value);
-  } finally {
-    await closeTab(state, page);
-  }
-}
-
-async function runParallelTask(task, logger) {
-  if (task.delay) await sleep(task.delay);
-  logger.debug(`Bat dau nhom "${task.name}"`);
-  const result = await softly(task.name, task.run, logger);
-  logger.info(`Xong nhom "${task.name}"${result.ok ? '' : ' (co loi, xem canh bao)'}`);
-  return result;
-}
-
-async function taskMainTab(state, aiTask = null) {
-  const args = {
-    page: state.page,
-    config: state.config,
-    selectors: state.selectors,
-    logger: state.logger,
-    extensions: state.extensions,
-    lock: state.activeTabLock,
-  };
-
-  // THU TU QUAN TRONG: trich xuat CSV Page 1 TRUOC khi dung toi Ahrefs.
-  //
-  // Ly do (run that 2026-08-22): Ahrefs doi tab / bam Copy lam trang SERP
-  // render lai, sau do native extractor chi con thay 3 ket qua trong khi
-  // Page 2 (tab sach, khong bi dung toi) lay duoc 9. CSV phai la anh chup
-  // cua SERP nguyen ban, truoc moi tuong tac.
-  const page1 = await softly('serp-page-1', () => collectSerpCsv({
-    ...args,
-    stagingDir: state.stagingDir,
-    sourcePage: 1,
-    startOffset: 0,
-    capturedAt: state.capturedAt,
-    keyword: state.keyword,
-  }), state.logger);
-  setPage1(state, page1.value);
-
-  if (aiTask) {
-    state.logger.info('Cho AI Overview Copy xong truoc khi thao tac Ahrefs widget.');
-    await aiTask;
-  }
-
-  const ideas = await softly('keyword-ideas', () => collectKeywordIdeas(args), state.logger);
-  setKeywordIdeas(state, ideas.value);
-
-  const paa = await softly('paa', () => collectPaa(args), state.logger);
-  setPaa(state, paa.value);
-}
-
-async function taskSuggestions(state) {
-  const page = await newTab(state);
-  try {
-    await runStep(state, 'open-serp-for-suggestions', async () => {
-      await openSerp(page, state.page1Url, state);
-    });
-    const value = await collectSuggestions({
-      page,
-      config: state.config,
-      selectors: state.selectors,
-      logger: state.logger,
-      extensions: state.extensions,
-      keyword: state.keyword,
-      lock: state.activeTabLock,
-      capture: state.capture,
-    });
-    setSuggestions(state, value);
-  } finally {
-    await closeTab(state, page);
-  }
-}
-
-async function taskPage2(state) {
-  const page = await newTab(state);
-  try {
-    await runStep(state, 'open-serp-page-2', async () => {
-      await openSerp(page, state.page2Url, state);
-    });
-    assertPage2Url(state, page);
-
-    // Chua biet Page 1 co bao nhieu dong -> danh so tam tu 0, se danh so lai sau.
-    const value = await collectSerpCsv({
-      page,
-      config: state.config,
-      selectors: state.selectors,
-      logger: state.logger,
-      extensions: state.extensions,
-      lock: state.activeTabLock,
-      stagingDir: state.stagingDir,
-      sourcePage: 2,
-      startOffset: 0,
-      capturedAt: state.capturedAt,
-      keyword: state.keyword,
-    });
-    setPage2(state, value, { needsRenumber: true });
-  } finally {
-    await closeTab(state, page);
-  }
-}
-
-/* --------------------------------------------- Step 4 (che do song song) */
-/** Danh so lai Page 2 va kiem tra trung lap sau khi ca hai trang da xong. */
-async function stepFinishSerpPages(state) {
-  const { config, logger } = state;
-  logger.step(4, state.totalSteps, 'Doi chieu Page 1 / Page 2...');
-
-  const startParam = config.search.results_per_page ?? 10;
-  const page1Rows = state.counts.serp_page_1_rows ?? 0;
-  state.page2PositionOffset = nextPagePositionOffset(page1Rows, startParam);
-
-  if (page1Rows > startParam) {
-    logger.warn(
-      `Google tra ve ${page1Rows} ket qua o Page 1 (num=${startParam}). ` +
-      `Page 2 danh so tu ${state.page2PositionOffset + 1}.`,
-      { code: 'SERP_MORE_RESULTS_THAN_EXPECTED', page1Rows, num: startParam },
-    );
-  }
-
-  if (state.page2NeedsRenumber && state.csvPage2) {
-    state.csvPage2 = renumberPositions(state.csvPage2, state.page2PositionOffset);
-    logger.debug(`Da danh so lai Page 2 tu ${state.page2PositionOffset + 1}`);
-  }
-
-  if ((state.counts.serp_page_2_rows ?? 0) > 0 && page1Rows > 0
-    && areCsvIdentical(state.csvPage1, state.csvPage2)) {
-    logger.warn('Page 2 trung Page 1, thu lai mot lan tren tab chinh.', { code: 'SERP_PAGE_DUPLICATE' });
-    const retry = await softly('serp-page-2-retry', () => retryPage2(state), logger);
-    if (!retry.ok || areCsvIdentical(state.csvPage1, state.csvPage2)) {
-      throw new AppError(
-        'SERP_PAGE_DUPLICATE',
-        'CSV Page 2 van trung hoan toan Page 1 sau khi thu lai. Dung de tranh ghi du lieu sai.',
-      );
-    }
-  }
-}
-
-async function retryPage2(state) {
-  await runStep(state, 'reopen-serp-page-2', async () => {
-    await openSerp(state.page, state.page2Url, state);
-    await state.page.reload({ waitUntil: 'domcontentloaded' });
-  });
-  assertPage2Url(state, state.page);
-
-  const value = await collectSerpCsv({
-    page: state.page,
-    config: state.config,
-    selectors: state.selectors,
-    logger: state.logger,
-    extensions: state.extensions,
-    lock: state.activeTabLock,
-    stagingDir: state.stagingDir,
-    sourcePage: 2,
-    startOffset: state.page2PositionOffset,
-    capturedAt: state.capturedAt,
-    keyword: state.keyword,
-  });
-  setPage2(state, value, { needsRenumber: false });
-}
-
 /* ---------------------------------------------- Step 3-7 (che do tuan tu) */
 async function stepAi(state) {
   const { logger } = state;
-  logger.step(3, state.totalSteps, 'Thu thap AI Overview / AI Mode...');
+  logger.step(7, state.totalSteps, 'AI Overview Page 1: Show more -> Prompt -> Copy answer...');
+
+  // AI luon la phase cuoi va luon bat dau tu Page 1 sach. Truoc do tab dang o
+  // Page 2 va da qua cac tuong tac Ahrefs/Suggestions.
+  await runStep(state, 'reopen-page-1-for-ai', async () => {
+    await openSerp(state.page, state.page1Url, state);
+  });
 
   const result = await softly('ai-mode', () => collectAiAnswer({
     page: state.page,
@@ -522,13 +308,6 @@ async function stepAi(state) {
   }), logger);
   setAiResult(state, result.value);
 
-  // AI Mode co the dieu huong sang trang khac -> quay lai SERP Page 1
-  if (!state.page.url().startsWith(state.page1Url.split('&start=')[0])) {
-    logger.info('Quay lai SERP Page 1 sau khi thu thap AI Mode.');
-    await runStep(state, 'return-to-serp', async () => {
-      await openSerp(state.page, state.page1Url, state);
-    });
-  }
 }
 
 async function stepKeywordIdeas(state) {
@@ -553,7 +332,7 @@ async function stepPaa(state) {
 
 async function stepSuggestions(state) {
   const { logger } = state;
-  logger.step(6, state.totalSteps, 'Thu thap Google Search Suggestions...');
+  logger.step(3, state.totalSteps, 'Thu thap Google Search Suggestions truoc tien...');
   const result = await softly('suggestions', () => collectSuggestions({
     page: state.page,
     config: state.config,
@@ -570,7 +349,7 @@ async function stepSuggestions(state) {
 
 async function stepSerpPages(state) {
   const { config, logger } = state;
-  logger.step(7, state.totalSteps, 'Xuat CSV Page 1 va Page 2...');
+  logger.step(6, state.totalSteps, 'Xuat du 2 CSV Page 1 va Page 2...');
   state.capturedAt = new Date().toISOString();
 
   if ((config.search.pages ?? 2) !== 2) {
@@ -617,7 +396,7 @@ async function stepSerpPages(state) {
       );
     }
   }
-  setPage2(state, page2, { needsRenumber: false });
+  setPage2(state, page2);
 }
 
 async function collectPage2Sequential(state, forceReload = false) {
@@ -733,7 +512,7 @@ async function stepWriteAndValidate(state, options) {
     extensions: summariseExtensions(state.extensions),
     chromeVersion: state.chromeVersion,
     engine: state.engine ?? null,
-    mode: state.parallel ? 'parallel' : 'sequential',
+    mode: 'sequential',
     severity: bySeverity,
   }));
 
@@ -814,48 +593,15 @@ function setPage1(state, value) {
   state.warnings.push(...(v.warnings ?? []));
 }
 
-function setPage2(state, value, opts = {}) {
+function setPage2(state, value) {
   const v = value ?? { csvText: '', source: 'none', rowCount: 0, warnings: [WARNING_CODES.SERP_EMPTY_PAGE] };
   state.csvPage2 = v.csvText;
   state.sources.serp_page_2 = v.source;
   state.counts.serp_page_2_rows = v.rowCount;
   state.warnings.push(...(v.warnings ?? []));
-  // Chi danh so lai CSV canonical do tool tu sinh, khong dung vao CSV goc cua extension
-  state.page2NeedsRenumber = Boolean(opts.needsRenumber) && v.source === 'native_serp_dom';
-}
-
-/** Nhom nao that bai hoan toan thi van phai co gia tri mac dinh de ghi file. */
-function applyDefaultsForMissingBlocks(state) {
-  if (!state.ai) setAiResult(state, null);
-  if (!state.keywordIdeas) setKeywordIdeas(state, null);
-  if (!state.paa) setPaa(state, null);
-  if (!state.suggestions) setSuggestions(state, null);
-  if (state.csvPage1 == null) setPage1(state, null);
-  if (state.csvPage2 == null) setPage2(state, null);
 }
 
 /* ------------------------------------------------------------- Ho tro chung */
-
-async function newTab(state) {
-  const page = await state.context.newPage();
-  state.extraPages.push(page);
-  try {
-    if (state.config.browser?.viewport) await page.setViewportSize(state.config.browser.viewport);
-  } catch { /* CDP tu quan ly kich thuoc */ }
-  return page;
-}
-
-async function closeTab(state, page) {
-  state.extraPages = state.extraPages.filter((p) => p !== page);
-  if (page && !page.isClosed()) await page.close().catch(() => {});
-}
-
-async function closeExtraTabs(state) {
-  for (const page of state.extraPages ?? []) {
-    if (page && !page.isClosed()) await page.close().catch(() => {});
-  }
-  state.extraPages = [];
-}
 
 function assertPage2Url(state, page) {
   const expected = state.config.search.results_per_page ?? 10;

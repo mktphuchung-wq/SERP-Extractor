@@ -7,6 +7,7 @@ import { loadFixtureDocument, cssSpecs } from '../helpers/dom.mjs';
 import { loadSelectors } from '../../src/core/config.mjs';
 import { extractAhrefsList, readAhrefsCountry, parseCopiedList } from '../../src/extractors/ahrefs-dom.mjs';
 import { normalizeList } from '../../src/core/text.mjs';
+import { _internals } from '../../src/adapters/ahrefs-widget.mjs';
 
 const sel = loadSelectors().ahrefs_widget;
 
@@ -82,4 +83,14 @@ test('ahrefs: khong co widget thi tra ve found=false, khong nem loi', () => {
 test('ahrefs: parse text tu clipboard (nut Copy) - lay cot dau tien', () => {
   const raw = 'filipino vs samoan\t1200\t45\nsamoan food\t300\t20\n\n  spaced keyword  \t10\t5\n';
   assert.deepEqual(parseCopiedList(raw), ['filipino vs samoan', 'samoan food', 'spaced keyword']);
+});
+
+test('ahrefs: bridge clipboardRead duoc uu tien, khong phu thuoc document focus', async () => {
+  let evaluated = false;
+  const page = {
+    readClipboardText: async () => 'keyword from bridge',
+    evaluate: async () => { evaluated = true; return 'wrong page clipboard'; },
+  };
+  assert.equal(await _internals.readClipboardText(page), 'keyword from bridge');
+  assert.equal(evaluated, false);
 });

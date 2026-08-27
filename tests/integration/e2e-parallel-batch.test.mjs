@@ -86,7 +86,7 @@ async function withEnvironment(debugPort, fn) {
   }
 }
 
-test('E2E: che do song song va tuan tu cho ket qua giong nhau', { skip }, async (t) => {
+test('E2E: hai co legacy parallel/sequential deu dung workflow co dinh', { skip }, async () => {
   await withEnvironment(9335, async ({ tmpDir, profileDir, port }) => {
     const selectors = loadSelectors();
     const job = {
@@ -96,18 +96,14 @@ test('E2E: che do song song va tuan tu cho ket qua giong nhau', { skip }, async 
     };
 
     const parallelConfig = buildConfig({ tmpDir: path.join(tmpDir, 'par'), profileDir, port, debugPort: 9335 });
-    const startPar = Date.now();
     const parallel = await runWorkflow({
       ...job, config: parallelConfig, options: { interactive: false, parallel: true, engine: 'playwright' },
     });
-    const parallelMs = Date.now() - startPar;
 
     const sequentialConfig = buildConfig({ tmpDir: path.join(tmpDir, 'seq'), profileDir, port, debugPort: 9335 });
-    const startSeq = Date.now();
     const sequential = await runWorkflow({
       ...job, config: sequentialConfig, options: { interactive: false, parallel: false, engine: 'playwright' },
     });
-    const sequentialMs = Date.now() - startSeq;
 
     // Cung tao du 3 file
     for (const result of [parallel, sequential]) {
@@ -125,7 +121,7 @@ test('E2E: che do song song va tuan tu cho ket qua giong nhau', { skip }, async 
     assert.deepEqual(rowsWithoutTimestamp(readCsv(parallel, 1)), rowsWithoutTimestamp(readCsv(sequential, 1)));
     assert.deepEqual(rowsWithoutTimestamp(readCsv(parallel, 2)), rowsWithoutTimestamp(readCsv(sequential, 2)));
 
-    // Vi tri Page 2 phai duoc danh so lai dung o che do song song
+    // Vi tri Page 2 phai duoc danh so dung trong workflow co dinh.
     const p2 = parseCsv(readCsv(parallel, 2));
     assert.deepEqual(p2.records.map((r) => r.position), ['11', '12', '13']);
 
@@ -135,12 +131,6 @@ test('E2E: che do song song va tuan tu cho ket qua giong nhau', { skip }, async 
     assert.equal(parallel.sources.paa, sequential.sources.paa);
     assert.equal(parallel.sources.suggestions, sequential.sources.suggestions);
 
-    t.diagnostic(`song song: ${parallelMs}ms | tuan tu: ${sequentialMs}ms`);
-    // Dung nguong co dung sai: khi chay ca bo test, nhieu Chrome cung chay nen
-    // do thoi gian bi nhieu. Nguong nay van bat duoc hoi quy that (song song
-    // cham han tuan tu), ma khong fail vi lich CPU.
-    assert.ok(parallelMs < sequentialMs * 1.3,
-      `che do song song khong duoc cham hon tuan tu dang ke (${parallelMs}ms vs ${sequentialMs}ms)`);
   });
 });
 

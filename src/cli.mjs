@@ -36,8 +36,8 @@ Tham so:
                         playwright        : khoi dong Chrome for Testing rieng
   --config <file>       Dung file cau hinh khac (mac dinh config/default.yaml)
   --overwrite           Cho phep ghi de thu muc ket qua da ton tai (co backup)
-  --sequential          Tat che do chay song song (chay lan luot tung buoc)
-  --parallel            Bat che do chay song song (mac dinh da bat)
+  --sequential          Tuong thich lenh cu; workflow luon chay theo thu tu co dinh
+  --parallel            Tuong thich lenh cu; khong bat chay song song
   --no-open             Khong tu mo file ket qua bang Notepad
   --capture-dom[=a,b]   Chup DOM that cua tung block ra logs\<run_id>\dom-snapshots\
                         de soan selector tu bang chung (kem bao cao de xuat)
@@ -399,7 +399,7 @@ async function diagnose(config) {
   }
 
   lines.push('');
-  lines.push(`  Che do chay: ${config.performance?.parallel_steps === false ? 'TUAN TU' : 'SONG SONG'}`);
+  lines.push('  Che do chay: TUAN TU CO DINH (Suggestions -> Ahrefs -> 2 CSV -> AI Overview)');
   lines.push('');
   process.stdout.write(`${lines.join('\n')}\n`);
   return hasError ? EXIT_CODES.BROWSER_SETUP : EXIT_CODES.SUCCESS;

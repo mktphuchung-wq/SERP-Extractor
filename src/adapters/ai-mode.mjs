@@ -61,20 +61,24 @@ export async function collectAiAnswer(args) {
 
       OverviewFound: {
         async run(ctx) {
-          const showMore = await firstVisible(ctx.overview, overviewSel.show_more, {
-            perSpec: 2000, logger, block: 'ai_overview.show_more',
+          const opened = await openOverviewPrompt({
+            page, overview: ctx.overview, overviewSel, promptSel, lock, logger,
           });
-          if (showMore) {
-            await lock.run(() => showMore.locator.click({ timeout: 5000 })).catch(() => {});
-            logger?.info('Da bam "Show more" trong AI Overview.');
-            await sleep(1200);
-          }
-          return 'Expanded';
+          return {
+            to: 'Expanded',
+            input: opened?.input ?? null,
+            surface: opened?.surface ?? null,
+          };
         },
       },
 
       Expanded: {
         async run(ctx) {
+          if (ctx.input) {
+            return {
+              to: 'PromptBox', input: ctx.input, surface: ctx.surface, source: 'google_ai_overview',
+            };
+          }
           const input = await firstVisible(ctx.overview, promptSel.input, {
             timeout: 8000, perSpec: 2000, logger, block: 'ai_prompt_box.input',
           });
@@ -113,13 +117,19 @@ export async function collectAiAnswer(args) {
             await ctx.input.fill(prompt, { timeout: 10000 });
             await sleep(400);
 
+            // AI Overview goc da co san mot nut "Copy text". Ghi baseline
+            // truoc khi submit de sau do chi nhan nut Copy MOI cua answer,
+            // khong copy nham noi dung overview cu.
+            const copyCountsBefore = await countCopyButtons(page, promptSel);
+            logger?.debug(`So nut Copy truoc khi Load: ${copyCountsBefore.join(',')}`);
+
             const load = await firstVisible(ctx.surface, promptSel.submit, {
               timeout: 8000, perSpec: 1600, logger, block: 'ai_prompt_box.submit',
             });
             if (!load) return false;
             await load.locator.click({ timeout: 5000 });
             logger?.info('Da bam "Load" de gui prompt.');
-            return true;
+            return { copyCountsBefore };
           });
 
           if (!submitted) {
@@ -129,7 +139,7 @@ export async function collectAiAnswer(args) {
             ctx.warnings.push(WARNING_CODES.AI_MODE_UNAVAILABLE);
             return 'Missing';
           }
-          return 'Submitted';
+          return { to: 'Submitted', copyCountsBefore: submitted.copyCountsBefore };
         },
       },
 
@@ -137,21 +147,27 @@ export async function collectAiAnswer(args) {
         async run(ctx) {
           const timeoutMs = aiCfg.response_timeout_ms ?? 120000;
           const pollMs = aiCfg.poll_interval_ms ?? 750;
-          let surface = ctx.surface;
-          let copy = await waitForCopyButton(surface, promptSel, {
+          // Sau khi bam Load, Google thay the toan bo cay DOM cua AI Overview.
+          // Locator container cu van ton tai trong object store nhung khong con
+          // la ancestor cua response moi, vi vay phai tim Copy tren trang hien
+          // tai. Selector Copy text chinh xac giu cho no khong bat nham nut
+          // "Copy <prompt>" o phia tren cau tra loi.
+          let copy = await waitForCopyButton(page, promptSel, {
             timeoutMs: Math.min(timeoutMs, 15000), pollMs,
+            beforeCounts: ctx.copyCountsBefore,
           });
 
           // Sau khi gui prompt, Google co the chuyen giao dien hoi dap sang
           // target con. Thu bam lai surface do truoc khi cho het timeout con lai.
           if (!copy && await adoptAiSurface(page, overviewSel, logger)) {
-            surface = page;
-            copy = await waitForCopyButton(surface, promptSel, {
+            copy = await waitForCopyButton(page, promptSel, {
               timeoutMs: Math.max(1000, timeoutMs - 15000), pollMs,
+              beforeCounts: ctx.copyCountsBefore,
             });
           } else if (!copy) {
-            copy = await waitForCopyButton(surface, promptSel, {
+            copy = await waitForCopyButton(page, promptSel, {
               timeoutMs: Math.max(1000, timeoutMs - 15000), pollMs,
+              beforeCounts: ctx.copyCountsBefore,
             });
           }
           if (!copy) {
@@ -218,6 +234,83 @@ export async function collectAiAnswer(args) {
   };
 }
 
+/**
+ * Bam Show more va CHI coi la thanh cong khi o prompt that su xuat hien.
+ * Google thay node trong luc render nen locator co the stale; moi lan deu tim
+ * lai va thu toi da 3 lan. Khong nuot loi click roi bao thanh cong gia.
+ */
+async function openOverviewPrompt({ page, overview, overviewSel, promptSel, lock, logger }) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const showMore = await firstVisible(overview, overviewSel.show_more, {
+      timeout: 2000, perSpec: 1500, logger, block: 'ai_overview.show_more',
+    });
+    if (!showMore) break;
+
+    try {
+      await lock.run(() => showMore.locator.click({ timeout: 6000 }));
+      logger?.info(`Da click "Show more" lan ${attempt}; dang xac minh o prompt.`);
+    } catch (err) {
+      logger?.debug(`Click "Show more" lan ${attempt} chua thanh cong: ${err.message}`);
+      await sleep(500);
+      continue;
+    }
+
+    await sleep(900);
+    const inOverview = await firstVisible(overview, promptSel.input, {
+      timeout: 1500, perSpec: 700,
+    });
+    if (inOverview) {
+      logger?.info('Da mo o prompt trong AI Overview.');
+      return { input: inOverview.locator, surface: overview };
+    }
+    const inPage = await firstVisible(page, promptSel.input, {
+      timeout: 1500, perSpec: 700,
+    });
+    if (inPage) {
+      logger?.info('Da mo o prompt tren Page 1.');
+      return { input: inPage.locator, surface: page };
+    }
+
+    // Fallback ban phim cho control role=button: focus dung node roi Enter.
+    try {
+      await lock.run(() => showMore.locator.press('Enter', { timeout: 6000 }));
+      logger?.info(`Da nhan Enter tren "Show more" lan ${attempt}; dang xac minh o prompt.`);
+      await sleep(900);
+      const afterEnter = await firstVisible(page, promptSel.input, {
+        timeout: 1500, perSpec: 700,
+      });
+      if (afterEnter) {
+        logger?.info('Da mo o prompt tren Page 1 bang phim Enter.');
+        return { input: afterEnter.locator, surface: page };
+      }
+    } catch (err) {
+      logger?.debug(`Enter tren "Show more" lan ${attempt} chua thanh cong: ${err.message}`);
+    }
+
+    // Phuong an cuoi cho dung control da dinh danh tu DOM that. Mot so ban
+    // Google bo qua toa do chuot CDP khi layout dang animation, nhung handler
+    // click tren chinh node van mo duoc panel.
+    const domState = await page.evaluate(() => {
+      const el = document.querySelector("[role='button'][aria-label='Show more AI Overview' i]");
+      if (!el) return { found: false, expanded: false };
+      el.click();
+      return { found: true, expanded: el.getAttribute('aria-expanded') === 'true' };
+    }).catch(() => ({ found: false, expanded: false }));
+    if (domState.found) {
+      logger?.info(`Da kich hoat DOM "Show more" lan ${attempt} (expanded=${domState.expanded}).`);
+      await sleep(1200);
+      const afterDomClick = await firstVisible(page, promptSel.input, {
+        timeout: 2500, perSpec: 900,
+      });
+      if (afterDomClick) {
+        logger?.info('Da mo o prompt tren Page 1 bang DOM fallback.');
+        return { input: afterDomClick.locator, surface: page };
+      }
+    }
+  }
+  return null;
+}
+
 /** URL that su cua tab, doc lai tu trang neu engine ho tro. */
 async function currentUrl(page) {
   if (typeof page.syncUrl === 'function') {
@@ -230,11 +323,15 @@ async function currentUrl(page) {
 /** Cho nut Copy cua cau tra loi xuat hien sau khi bam Load. */
 async function waitForCopyButton(scope, promptSel, opts) {
   const deadline = Date.now() + opts.timeoutMs;
+  const beforeCounts = opts.beforeCounts ?? [];
   while (Date.now() < deadline) {
-    for (const spec of promptSel.copy_button ?? []) {
+    for (const [index, spec] of (promptSel.copy_button ?? []).entries()) {
       try {
-        const locator = buildLocator(scope, spec)?.first();
-        if (!locator) continue;
+        const all = buildLocator(scope, spec);
+        if (!all) continue;
+        const count = await all.count();
+        if (count <= (beforeCounts[index] ?? 0)) continue;
+        const locator = all.nth(count - 1);
         await locator.waitFor({ state: 'visible', timeout: Math.min(opts.pollMs, 1000) });
         return { locator, spec };
       } catch { /* cau tra loi chua san sang */ }
@@ -242,6 +339,20 @@ async function waitForCopyButton(scope, promptSel, opts) {
     await sleep(opts.pollMs);
   }
   return null;
+}
+
+/** Dem nut Copy theo tung selector de phan biet Overview cu va answer moi. */
+async function countCopyButtons(scope, promptSel) {
+  const counts = [];
+  for (const spec of promptSel.copy_button ?? []) {
+    try {
+      const locator = buildLocator(scope, spec);
+      counts.push(locator ? await locator.count() : 0);
+    } catch {
+      counts.push(0);
+    }
+  }
+  return counts;
 }
 
 /** Doc noi dung do nut Copy vua ghi, uu tien quyen cua bridge extension. */
@@ -309,9 +420,13 @@ async function adoptAiSurface(page, overviewSel, logger) {
   const url = await currentUrl(page);
   const shell = toRegExp(overviewSel.embedded_shell_url);
   const inShell = shell ? shell.test(String(url)) : false;
+  if (!inShell) {
+    logger?.debug(`Tab AI dang la trang web binh thuong (${url}); khong bam sang target con.`);
+    return false;
+  }
   logger?.info(
     `Khong thay o nhap prompt trong tab (URL: ${url}`
-    + `${inShell ? ' - day la vo giao dien noi bo cua Chrome' : ''}). `
+    + ' - day la vo giao dien noi bo cua Chrome). '
     + 'Dang tim trang AI Mode trong target con...',
   );
 
@@ -429,5 +544,5 @@ export function trimTrailingUi(markdown, stopMarkers) {
 
 export const _internals = {
   findResponseLocator, countResponseBlocks, describeSpec, findPromptBox, adoptAiSurface,
-  waitForCopyButton, readClipboardText,
+  waitForCopyButton, countCopyButtons, readClipboardText, openOverviewPrompt,
 };

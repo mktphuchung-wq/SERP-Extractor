@@ -12,13 +12,62 @@ import assert from 'node:assert/strict';
 import { loadFixtureDocument, cssSpecs } from '../helpers/dom.mjs';
 import { loadSelectors } from '../../src/core/config.mjs';
 import { extractSuggestionDropdown } from '../../src/extractors/suggestions-dom.mjs';
-import { trimTrailingUi } from '../../src/adapters/ai-mode.mjs';
+import { trimTrailingUi, _internals as aiInternals } from '../../src/adapters/ai-mode.mjs';
 import { nextPagePositionOffset } from '../../src/adapters/serp-export.mjs';
 import { normalizeList } from '../../src/core/text.mjs';
+import { WORKFLOW_PHASES } from '../../src/orchestrator.mjs';
 
 const selectors = loadSelectors();
 const sugSel = selectors.google_suggestions;
 const aiSel = selectors.ai_prompt_box;
+
+test('hoi quy: workflow dung thu tu Suggest -> Ahrefs -> 2 CSV -> AI Overview Page 1', () => {
+  assert.deepEqual(WORKFLOW_PHASES, [
+    'suggestions',
+    'ahrefs-keyword-ideas',
+    'ahrefs-paa',
+    'serp-page-1-and-page-2',
+    'ai-overview-page-1',
+  ]);
+});
+
+test('hoi quy: copy answer ho tro icon role=button, khong can chu Copy hien thi', () => {
+  const css = aiSel.copy_button.filter((spec) => spec.type === 'css').map((spec) => spec.css).join(' ');
+  assert.match(css, /button\[aria-label='Copy text' i\]/);
+});
+
+test('hoi quy: uu tien Copy text cua answer, khong lay Copy kem nguyen prompt', () => {
+  const primary = aiSel.copy_button[0];
+  const re = new RegExp(primary.name.replace(/^\(\?i\)/, ''), 'i');
+  assert.equal(re.test('Copy text'), true);
+  assert.equal(re.test('Copy Create a concise SEO content brief'), false);
+});
+
+test('hoi quy: Show more khop aria-label that "Show more AI Overview"', () => {
+  const primary = selectors.ai_overview.show_more[0];
+  const re = new RegExp(primary.name.replace(/^\(\?i\)/, ''), 'i');
+  assert.equal(re.test('Show more AI Overview'), true);
+  const css = selectors.ai_overview.show_more.filter((spec) => spec.type === 'css').map((spec) => spec.css);
+  assert.ok(css.some((value) => value.includes("aria-label='Show more AI Overview'")));
+});
+
+test('hoi quy: AI Mode URL binh thuong khong duoc nhay nham sang tab Google khac', async () => {
+  let adopted = false;
+  const page = {
+    url: () => 'https://www.google.com/search?q=test&udm=50',
+    adoptEmbeddedTarget: async () => { adopted = true; return { targetId: 'wrong' }; },
+  };
+  const picked = await aiInternals.adoptAiSurface(page, selectors.ai_overview, null);
+  assert.equal(picked, false);
+  assert.equal(adopted, false);
+});
+
+test('hoi quy: embedded target AI chi khop www.google search, khong khop Search Console', () => {
+  const pattern = selectors.ai_overview.embedded_target_url.replace(/^\(\?i\)/, '');
+  const re = new RegExp(pattern, 'i');
+  assert.equal(re.test('https://www.google.com/search?q=test&udm=50'), true);
+  assert.equal(re.test('https://search.google.com/search-console/index?resource_id=x'), false);
+});
 
 /* -------------------------------------------------- 1. Nut Delete trong goi y */
 

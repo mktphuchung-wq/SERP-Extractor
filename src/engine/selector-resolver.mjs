@@ -228,7 +228,9 @@ export function describeNode(arg) {
   const el = store[(arg && arg.index) || 0];
   if (!el || !el.isConnected) return { ok: false, reason: 'detached' };
 
-  el.scrollIntoView({ block: 'center', inline: 'center' });
+  // Bat buoc cuon tuc thoi: neu trang dat scroll-behavior:smooth, toa do co
+  // the van thay doi sau luc doc rect va Input.dispatchMouseEvent se click hut.
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
   const rect = el.getBoundingClientRect();
   const style = window.getComputedStyle(el);
   const visible = rect.width > 0 && rect.height > 0
@@ -290,6 +292,15 @@ export function fillNode(arg) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
   return { ok: true };
+}
+
+/** Focus dung node truoc khi phat su kien ban phim that qua CDP. */
+export function focusNode(arg) {
+  const store = window.__serpNodes || [];
+  const el = store[(arg && arg.index) || 0];
+  if (!el || !el.isConnected) return { ok: false, reason: 'missing' };
+  el.focus({ preventScroll: true });
+  return { ok: document.activeElement === el };
 }
 
 /** Don kho node da luu de tranh giu tham chieu DOM qua lau. */

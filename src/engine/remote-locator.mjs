@@ -14,7 +14,7 @@
 import { AppError } from '../core/errors.mjs';
 import { composeExtractor } from '../browser/page-eval.mjs';
 import {
-  resolveSpec, describeNode, nodeTextContent, nodeInnerText, fillNode,
+  resolveSpec, describeNode, nodeTextContent, nodeInnerText, fillNode, focusNode,
 } from './selector-resolver.mjs';
 
 const RESOLVE_SRC = composeExtractor(resolveSpec).toString();
@@ -22,6 +22,7 @@ const DESCRIBE_SRC = composeExtractor(describeNode).toString();
 const TEXT_SRC = composeExtractor(nodeTextContent).toString();
 const INNER_TEXT_SRC = composeExtractor(nodeInnerText).toString();
 const FILL_SRC = composeExtractor(fillNode).toString();
+const FOCUS_SRC = composeExtractor(focusNode).toString();
 
 /** Goi mot ham da serialize voi doi so JSON. */
 function callWith(fnSource, arg) {
@@ -272,8 +273,9 @@ export class RemoteLocator {
 
   async press(key, options = {}) {
     await this._page._ensureVisible();
-    await this._waitAndDescribe(options.timeout ?? 30000);
+    const target = await this._waitAndDescribe(options.timeout ?? 30000);
     const session = await this._page._session();
+    await session.evaluate(callWith(FOCUS_SRC, { index: target.index }));
     await dispatchKey(session, key);
   }
 

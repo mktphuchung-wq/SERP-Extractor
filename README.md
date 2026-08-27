@@ -298,41 +298,31 @@ Canh bao: 1 ERROR | 0 WARN | 2 INFO (fallback)
 `SELECTOR_DRIFT` là `INFO` vì fallback vẫn cho dữ liệu đúng. Muốn siết lại (ví dụ chạy trong CI),
 đặt `logging.strict_selectors: true` để nâng nó thành `WARN`.
 
-### Chạy song song (mặc định đã bật)
+### Thứ tự thu thập cố định
 
-Trong **một** từ khóa, các bước không phụ thuộc nhau chạy đồng thời trên các tab riêng:
+Mỗi từ khóa chạy trên một tab theo đúng thứ tự phụ thuộc của giao diện thật:
 
-| Tab | Việc |
-| --- | --- |
-| Tab chính (Page 1) | Ahrefs Keywords Ideas → PAA → CSV Page 1 (cùng widget nên phải tuần tự) |
-| Tab 2 | AI Overview / AI Mode |
-| Tab 3 | Google Search Suggestions |
-| Tab 4 | CSV Page 2 (`start=10`) |
+1. Google Search Suggestions.
+2. Ahrefs Keywords Ideas.
+3. Ahrefs People Also Asked.
+4. Xuất đủ hai CSV Page 1 và Page 2.
+5. Nạp lại Page 1, mở AI Overview rồi chạy `Show more → Prompt → Load → Copy answer`.
+6. Ghi ba file đầu ra và chạy quality gate.
 
-Nhờ vậy bước AI Mode (thường chiếm 60–70% thời gian) chạy đè lên các bước còn lại. Đo trên bộ test
-E2E cục bộ: **10,3s so với 15,0s** — nhanh hơn ~31%; với run thật (AI Mode mất ~2 phút) mức tiết kiệm
-còn lớn hơn.
-
-An toàn khi chạy song song:
-
-- Những việc phụ thuộc **tab đang active** — mở popup extension, đọc clipboard, `bringToFront` — được
-  bảo vệ bằng một khóa, chỉ một việc chạy tại một thời điểm, nên không lấy nhầm dữ liệu giữa các tab.
-- Các tab mở lệch nhau `performance.stagger_ms` (mặc định 1200ms) để không dội Google cùng lúc.
-- Nếu gặp CAPTCHA/login, chỉ hiện **một** hộp thoại chờ; các tab còn lại tự thử lại sau khi bạn xử lý xong.
-- Vị trí của Page 2 được đánh số lại sau khi biết Page 1 có bao nhiêu dòng.
-
-Tắt bằng `--sequential` hoặc `performance.parallel_steps: false` nếu cần debug hoặc thấy Google phản ứng.
+Thứ tự này tránh tranh chấp tab active/clipboard giữa Ahrefs và AI, đồng thời bảo đảm CSV được lấy xong
+trước khi AI Overview thay đổi giao diện. `--parallel` và `--sequential` chỉ còn được nhận để tương thích
+với lệnh cũ; workflow luôn dùng thứ tự cố định trên.
 
 ### Tiến trình hiển thị
 
 ```text
 [1/8] Khoi dong Chrome profile rieng...
 [2/8] Mo Google SERP (US/English, pws=0)...
-[3/8] Thu thap AI Overview / AI Mode...
+[3/8] Thu thap Google Search Suggestions truoc tien...
 [4/8] Thu thap Keywords Ideas tu Ahrefs...
 [5/8] Thu thap People Also Asked...
-[6/8] Thu thap Google Search Suggestions...
-[7/8] Xuat CSV Page 1 va Page 2...
+[6/8] Xuat du 2 CSV Page 1 va Page 2...
+[7/8] AI Overview Page 1: Show more -> Prompt -> Copy answer...
 [8/8] Ghi file va kiem tra chat luong...
 
 SUCCESS
@@ -349,8 +339,7 @@ Folder:  D:\WORK\Projects\SERP Extractor\output\Filipino vs Samoan
 | `--require-extensions` | Dừng ngay nếu thiếu extension |
 | `--keep-staging` | Giữ thư mục staging sau khi chạy (để debug) |
 | `--verbose` | Log chi tiết |
-| `--sequential` | Tắt chạy song song, chạy lần lượt từng bước |
-| `--parallel` | Bật chạy song song (mặc định đã bật) |
+| `--sequential` / `--parallel` | Cờ tương thích lệnh cũ; workflow hiện luôn chạy theo thứ tự cố định |
 | `--no-open` | Không tự mở file kết quả bằng Notepad |
 | `--capture-dom[=a,b]` | Chụp DOM thật của từng block kèm báo cáo đề xuất selector |
 | `--setup` | Chạy riêng phần cài đặt lần đầu rồi thoát |
@@ -633,8 +622,8 @@ notifications:
   open_batch_summary: true          # chạy nhiều từ khóa thì mở file tổng kết
 
 performance:
-  parallel_steps: true              # chạy song song các bước độc lập
-  stagger_ms: 1200                  # giãn cách mở tab
+  parallel_steps: false             # workflow luôn chạy tuần tự cố định
+  stagger_ms: 1200                  # giữ để tương thích config cũ
   keyword_concurrency: 1            # nhiều từ khóa LUÔN chạy tuần tự
 
 privacy:
@@ -690,8 +679,8 @@ Một số quyết định quan trọng:
 
 - **`.bat` chỉ là launcher.** Toàn bộ logic nằm trong Node.js để có thể chờ DOM, retry, ghi log và kiểm tra đầu ra.
 - **State machine thay vì script dài.** AI Mode chạy theo máy trạng thái
-  `SearchLoaded → OverviewFound → Expanded → PromptBox → Submitted → ResponseStable → Captured`
-  (nhánh `AIModeTab` / `AIModeDirect` / `Missing`). Orchestrator cũng là một chuỗi step có retry riêng.
+  `SearchLoaded → OverviewFound → Expanded → PromptBox → Submitted → CopyReady → Captured`
+  (nhánh `Missing` khi Google không trả dữ liệu). Orchestrator cũng là một chuỗi step có retry riêng.
 - **Extension-first, DOM fallback bắt buộc** cho Suggestions, PAA và Organic SERP.
 - **Không click tọa độ** vào icon extension trên thanh công cụ Chrome. Tool đọc `manifest.json`
   để tìm `action.default_popup` (MV3) hoặc `browser_action.default_popup` (MV2) rồi mở trang đó.
@@ -724,8 +713,8 @@ hoặc double-click `TEST.bat`.
 | Integration (fixture HTML) | SERP lẫn ads/PAA/video/featured snippet, DOM→Markdown, widget Ahrefs, autocomplete dropdown, popup extension, đường đi artifact staging→output |
 | Integration (Chrome thật) | Selector registry qua Playwright locator, `page.evaluate` với extractor ghép source, state machine AI Mode với nội dung streaming, bắt sự kiện download khi bấm Export CSV |
 | E2E cục bộ (Chrome thật) | Chạy trọn orchestrator trên server giả lập SERP ở `127.0.0.1`: tạo đủ 3 file, đúng 4 heading, PAA dedupe, suggestions DOM fallback, CSV lọc đúng, manifest nằm ngoài `output\`, chạy lại thì tạo thư mục timestamp |
-| Hồi quy từ run thật | Ba lỗi phát hiện khi chạy thật trên Google: gợi ý dính chữ `Delete`, khối `Share public link` lọt vào câu trả lời AI, Page 2 chồng lấn vị trí khi Google trả về hơn `num` kết quả |
-| Song song & nhiều từ khóa | Chế độ song song cho kết quả **giống hệt** chế độ tuần tự và nhanh hơn; khóa mutex thật sự tuần tự hóa vùng tranh chấp; hai từ khóa tạo hai thư mục riêng, log tách biệt |
+| Hồi quy từ run thật | Thứ tự workflow, Show more dynamic/stale, `Copy text` của answer, không lấy nhầm `Copy <prompt>`, không nhảy nhầm tab Search Console, gợi ý cá nhân và vị trí Page 2 |
+| Cờ legacy & nhiều từ khóa | `--parallel` / `--sequential` đều dùng workflow cố định; hai từ khóa tạo hai thư mục riêng, log tách biệt |
 | Extension discovery | Quét được nhiều thư mục profile (`Default`, `Profile N`), báo rõ đã quét những profile nào, phát hiện extension cài nhầm ở Chrome cá nhân |
 
 Các test cần Chrome sẽ **tự động skip** nếu máy không có Chrome.

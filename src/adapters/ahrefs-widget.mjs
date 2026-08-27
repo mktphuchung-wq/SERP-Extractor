@@ -105,10 +105,7 @@ async function readClipboardUnlocked(page, selectors, logger) {
   if (!clicked) return [];
   await sleep(800);
   try {
-    const text = await page.evaluate(async () => {
-      if (!navigator.clipboard || !navigator.clipboard.readText) return '';
-      return navigator.clipboard.readText();
-    });
+    const text = await readClipboardText(page);
     const items = parseCopiedList(text);
     if (items.length) logger?.info(`Doc duoc ${items.length} dong tu clipboard cua Ahrefs.`);
     return items;
@@ -116,6 +113,18 @@ async function readClipboardUnlocked(page, selectors, logger) {
     logger?.debug(`Khong doc duoc clipboard: ${err.message}`);
     return [];
   }
+}
+
+/** Uu tien quyen clipboardRead cua bridge; Playwright moi dung page context. */
+async function readClipboardText(page) {
+  if (typeof page.readClipboardText === 'function') {
+    const text = await page.readClipboardText().catch(() => '');
+    if (text) return text;
+  }
+  return page.evaluate(async () => {
+    if (!navigator.clipboard?.readText) return '';
+    return navigator.clipboard.readText();
+  });
 }
 
 /**
@@ -192,4 +201,4 @@ function cssSpecs(specs) {
   return (specs ?? []).filter((s) => s && s.type === 'css' && s.css).map((s) => s.css);
 }
 
-export const _internals = { cssSpecs, readList, readViaClipboard };
+export const _internals = { cssSpecs, readList, readViaClipboard, readClipboardText };

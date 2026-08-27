@@ -52,7 +52,8 @@ ai_overview:
     - { type: css, css: "div[data-subtree='aiov']" }
     - { type: text_container, text: '(?i)^ai overview$', up: 6 }
   show_more:
-    - { type: role, role: button, name: '(?i)^show more$' }
+    - { type: role, role: button, name: '(?i)^show more(?: ai overview)?$' }
+    - { type: css, css: "[role='button'][aria-label='Show more AI Overview' i]" }
     - { type: text, text: '(?i)^show more$' }
     - { type: css, css: "[aria-expanded='false'][role='button']" }
   ai_mode_entry:
@@ -69,10 +70,10 @@ ai_overview:
   # Hai khoa duoi cho tool biet khi nao phai nhay sang target con va nhay sang
   # cai nao - xem RemotePage.adoptEmbeddedTarget().
   embedded_shell_url: '(?i)^chrome://contextual[-_]tasks'
-  embedded_target_url: '(?i)^https?://([a-z0-9-]+\.)*google\.[a-z.]+/search'
+  embedded_target_url: '(?i)^https?://(www\.)?google\.[a-z.]+/search(?:[?#]|$)'
 
 ai_prompt_box:
-  selector_version: '2026-08-27.1'
+  selector_version: '2026-08-27.2'
   input:
     - { type: role, role: textbox, name: '(?i)(paste prompt|ask anything|ask a follow.?up|ask ai mode)' }
     - { type: css, css: "textarea[aria-label*='Paste Prompt' i], input[aria-label*='Paste Prompt' i]" }
@@ -87,8 +88,13 @@ ai_prompt_box:
     - { type: css, css: "button[aria-label*='Send' i]" }
     - { type: css, css: "button[type='submit']" }
   copy_button:
+    - { type: role, role: button, name: '(?i)^copy text$' }
+    - { type: css, css: "button[aria-label='Copy text' i]" }
     - { type: role, role: button, name: '(?i)^copy$' }
     - { type: css, css: "button[aria-label='Copy' i]" }
+    - { type: css, css: "[role='button'][aria-label='Copy' i]" }
+    - { type: css, css: "[role='button'][data-tooltip*='Copy' i], [role='button'][title*='Copy' i]" }
+    - { type: css, css: "[role='button']:has([aria-label='Copy' i]), button:has([aria-label='Copy' i])" }
     - { type: text, text: '(?i)^copy$' }
   response_container:
     - { type: css, css: '[data-rp-response]' }

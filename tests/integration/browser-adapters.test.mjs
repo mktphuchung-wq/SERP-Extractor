@@ -204,6 +204,7 @@ test('browser: anyPresent nhan dien indicator dang tao noi dung', { skip }, asyn
   await withPage(async (page) => {
     await page.goto(fixtureUrl('ai-mode-streaming.html'));
     await page.click('#showmore');
+    await page.click('#showmore');
     assert.equal(await anyPresent(page, selectors.ai_prompt_box.generating_markers), false);
     await page.click('#load');
     assert.equal(await anyPresent(page, selectors.ai_prompt_box.generating_markers), true);

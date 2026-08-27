@@ -131,11 +131,10 @@ notifications:
   open_batch_summary: true               # khi chay nhieu tu khoa: mo file tong ket
 
 performance:
-  # Cac buoc KHONG phu thuoc nhau chay dong thoi tren cac tab rieng.
-  # Nhung viec phu thuoc tab dang active (popup extension, clipboard) van
-  # duoc bao ve bang khoa nen khong lay nham du lieu giua cac tab.
-  parallel_steps: true
-  stagger_ms: 1200                       # gian cach mo tab de tranh mo don Google cung luc
+  # Workflow trong mot keyword luon theo thu tu Suggestions -> Ahrefs -> 2 CSV
+  # -> AI Overview de tranh tranh chap focus/clipboard va DOM thay doi.
+  parallel_steps: false
+  stagger_ms: 1200                       # giu de tuong thich config cu
   # Nhieu tu khoa (ngan cach bang ";") LUON chay tuan tu tren cung mot profile
   # vi Google va extension phu thuoc trang thai tab/profile (dac ta muc 17).
   keyword_concurrency: 1
