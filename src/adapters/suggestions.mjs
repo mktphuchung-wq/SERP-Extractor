@@ -16,6 +16,7 @@
  * Van khong bao gio gia lap click toa do vao icon extension (bat bien #3).
  */
 import { firstVisible, clickFirstVisible } from '../browser/locator.mjs';
+import { isUsable, describeCapability } from '../engine/capability.mjs';
 import { runExtractor } from '../browser/page-eval.mjs';
 import { extractSuggestionDropdown, extractExtensionSuggestions } from '../extractors/suggestions-dom.mjs';
 import { normalizeList } from '../core/text.mjs';
@@ -268,11 +269,16 @@ async function readOpenDropdown(args) {
 async function tryExtension(args) {
   const { page, selectors, logger, extensions, config } = args;
   const meta = extensions?.suggestions;
-  if (!meta?.installed || !meta.popupUrl) {
-    logger?.warn('Chua cai "Google Search Suggestion Extractor" hoac extension khong co popup.', {
-      code: WARNING_CODES.EXTENSION_MISSING, extension: meta?.id,
-    });
-    return { items: [], source: 'none', warnings: [WARNING_CODES.EXTENSION_MISSING] };
+  // Extension nay KHONG con la dependency bat buoc (dac ta Fast Path v1 - P0):
+  // luong tu dong dung DOM dropdown + endpoint autocomplete. Khong dung duoc thi
+  // bao INFO roi tra ve rong, KHONG phat EXTENSION_MISSING.
+  if (!isUsable(meta) || !meta.popupUrl) {
+    logger?.info(
+      'Bo qua "Google Search Suggestion Extractor" '
+      + `(${meta ? describeCapability(meta) : 'khong khai bao trong config'}); `
+      + 'dung DOM dropdown + endpoint autocomplete.',
+    );
+    return { items: [], source: 'none', warnings: [] };
   }
 
   const context = page.context();

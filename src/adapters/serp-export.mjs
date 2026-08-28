@@ -15,6 +15,7 @@ import { rowsToCsv, parseCsv, normalizeCsvText } from '../extractors/csv-normali
 import { WARNING_CODES, AppError } from '../core/errors.mjs';
 import { sleep } from '../core/retry.mjs';
 import { NO_LOCK } from '../core/mutex.mjs';
+import { isUsable, isDefinitelyMissing, describeCapability } from '../engine/capability.mjs';
 
 /**
  * @returns {Promise<{csvText:string, source:string, rowCount:number, warnings:string[]}>}
@@ -24,7 +25,17 @@ export async function collectSerpCsv(args) {
   const mode = config.extractors.serp_source ?? 'extension_then_dom';
   const warnings = [];
 
-  if (mode !== 'dom_only') {
+  // SEO SERP Extraction Tool la nguon TUY CHON (dac ta Fast Path v1 - P0).
+  // Khong co cach kich hoat dang tin cay (chua xac minh duoc extension, hoac
+  // manifest khong khai bao popup/options) thi native DOM la nguon CHINH ngay tu
+  // dau: khong thu vo vong, va khong ghi SERP_FALLBACK_USED - do khong phai
+  // "roi ve fallback", do la thiet ke.
+  const usable = canUseExtension(args.extensions?.serp_export);
+  if (mode !== 'dom_only' && !usable.ok) {
+    logger?.info(`Nguon CSV: native SERP extractor (${usable.why}).`);
+  }
+
+  if (mode !== 'dom_only' && usable.ok) {
     const lock = args.lock ?? NO_LOCK;
     // Luong extension phu thuoc TAB DANG ACTIVE -> phai doc quyen khi chay song song
     const viaExtension = await lock.run(() => tryExtensionExport(args)).catch((err) => {
@@ -49,6 +60,20 @@ export async function collectSerpCsv(args) {
   }
 
   return tryNativeExtract(args, warnings);
+}
+
+/**
+ * Extension SERP co dung duoc khong, va neu khong thi vi sao.
+ * @returns {{ok:boolean, why:string}}
+ */
+function canUseExtension(meta) {
+  if (!meta) return { ok: false, why: 'khong khai bao extension SERP trong config' };
+  if (isDefinitelyMissing(meta)) return { ok: false, why: 'extension chua cai hoac dang tat' };
+  if (!isUsable(meta)) return { ok: false, why: describeCapability(meta) };
+  if (!(meta.popupUrl || meta.optionsUrl)) {
+    return { ok: false, why: 'extension khong khai bao popup/options page' };
+  }
+  return { ok: true, why: 'extension san sang' };
 }
 
 /** Native DOM fallback - luon kha dung. */
@@ -91,19 +116,9 @@ export async function tryNativeExtract(args, warnings = []) {
 async function tryExtensionExport(args) {
   const { page, config, selectors, logger, extensions, stagingDir, sourcePage } = args;
   const meta = extensions?.serp_export;
-  if (!meta?.installed) {
-    logger?.warn('Chua cai "SEO SERP Extraction Tool".', {
-      code: WARNING_CODES.EXTENSION_MISSING, extension: meta?.id,
-    });
-    return null;
-  }
-  const entryUrl = meta.popupUrl || meta.optionsUrl;
-  if (!entryUrl) {
-    logger?.warn('Extension SERP khong khai bao popup/options page trong manifest.', {
-      code: WARNING_CODES.EXTENSION_POPUP_UNUSABLE,
-    });
-    return null;
-  }
+  // Dieu kien dung duoc da kiem o collectSerpCsv(); o day chi lay diem vao.
+  const entryUrl = meta?.popupUrl || meta?.optionsUrl;
+  if (!entryUrl) return null;
 
   const context = page.context();
   const sel = selectors.extension_serp_export ?? {};

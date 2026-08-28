@@ -167,3 +167,80 @@ export function parseCopiedList(raw) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 }
+
+/**
+ * Doc country NGAY TRONG widget da resolve (dac ta Fast Path v1 - P1).
+ *
+ * Khac readAhrefsCountry(): khong tu di tim container bang CSS nua. Container
+ * duoc truyen vao tu firstVisible() nen van dung ke ca khi selector CSS da drift
+ * va widget chi tim duoc bang fallback text (run that 20260827-171404:
+ * verifyUsMarket() loc bo text_container roi ket luan "khong doc duoc country",
+ * canh bao AHREFS_REGION_NOT_VERIFIED gan nhu tat yeu).
+ *
+ * Doc theo ba duong, dung theo thu tu: attribute -> control -> text cua widget.
+ * Ham thuan, chay duoc ca trong trang lan trong linkedom.
+ *
+ * @param {Element} root widget da resolve
+ * @param {{controlSelectors?:string[], usMarkers?:string[], countryAttributes?:string[]}} options
+ */
+export function readCountryFromWidget(root, options) {
+  const opts = options || {};
+  const controlSelectors = opts.controlSelectors || ['[data-country]', 'select[name*="country" i]'];
+  const attributes = opts.countryAttributes || ['data-country', 'aria-label', 'title', 'value'];
+  const usMarkers = opts.usMarkers || ['(?i)united states'];
+
+  function collapse(text) {
+    return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  }
+  function toRe(pattern) {
+    const m = /^\(\?([a-z]+)\)([\s\S]*)$/.exec(String(pattern || ''));
+    try {
+      if (m) return new RegExp(m[2], m[1].replace(/[^imsu]/g, ''));
+      return new RegExp(String(pattern || ''));
+    } catch (e) { return null; }
+  }
+  function qsa(node, selector) {
+    if (!node || !node.querySelectorAll) return [];
+    try { return Array.prototype.slice.call(node.querySelectorAll(selector)); } catch (e) { return []; }
+  }
+
+  if (!root || root.nodeType !== 1) return { found: false, text: '', isUS: false, via: 'no-root' };
+
+  const res = [];
+  for (let i = 0; i < usMarkers.length; i += 1) {
+    const re = toRe(usMarkers[i]);
+    if (re) res.push(re);
+  }
+  function isUsText(text) {
+    for (let i = 0; i < res.length; i += 1) {
+      if (res[i].test(text)) return true;
+    }
+    return false;
+  }
+
+  // 1) attribute tren chinh widget hoac tren control ben trong
+  const nodes = [root];
+  for (let i = 0; i < controlSelectors.length; i += 1) {
+    const found = qsa(root, controlSelectors[i]);
+    for (let j = 0; j < found.length; j += 1) nodes.push(found[j]);
+  }
+  for (let i = 0; i < nodes.length; i += 1) {
+    const el = nodes[i];
+    for (let j = 0; j < attributes.length; j += 1) {
+      const value = el.getAttribute ? collapse(el.getAttribute(attributes[j])) : '';
+      if (value) return { found: true, text: value, isUS: isUsText(value), via: `attr:${attributes[j]}` };
+    }
+  }
+
+  // 2) text cua control
+  for (let i = 1; i < nodes.length; i += 1) {
+    const value = collapse(nodes[i].textContent);
+    if (value) return { found: true, text: value, isUS: isUsText(value), via: 'control-text' };
+  }
+
+  // 3) text cua ca widget - chi ket luan khi thay dung marker
+  const whole = collapse(root.textContent);
+  if (whole && isUsText(whole)) return { found: true, text: 'United States', isUS: true, via: 'widget-text' };
+
+  return { found: false, text: '', isUS: false, via: 'not-found' };
+}

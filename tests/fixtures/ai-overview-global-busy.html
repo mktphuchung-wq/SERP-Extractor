@@ -1,0 +1,69 @@
+<!--
+  Fixture hoi quy run 20260827-171404 (keyword "scottish boy names").
+
+  Kieu hong: log ghi `Enter -> generating` roi cho DUNG 120 giay va timeout.
+  DOM cuoi run cho thay khong he co response container, khong co nut Copy,
+  khong co loading marker nao trong khoi AI - nghia la Google CHUA TUNG bat dau
+  tra loi. Cai lam state machine tin la "da gui" chi la mot marker
+  `[aria-busy="true"]` nam o KHOI KHAC tren trang.
+
+  Fixture nay dung lai dung hai dieu kien do:
+
+    1. `[aria-busy="true"]` + `[role="progressbar"]` ton tai san NGOAI khoi AI
+       (trong thanh Ahrefs va mot carousel). Chung KHONG bao gio bien mat.
+    2. Nut gui that xoa o nhap (giao dien co ve da nhan prompt) nhung khong
+       sinh ra response, khong sinh loading marker trong khoi AI, khong doi URL.
+
+  Ky vong: adapter KHONG duoc xac nhan submit, phai phan loai
+  AI_SUBMIT_NO_PROGRESS va dung som - khong duoc cho het response_timeout_ms.
+-->
+<html>
+<body>
+  <!-- Marker "dang tai" cua UI KHAC, co san tu truoc khi gui prompt -->
+  <div id="ahrefs-toolbar" class="ahrefs-toolbar" aria-busy="true">
+    <span>Ahrefs SEO Toolbar dang tai...</span>
+    <button class="ah_tb-btn-link" id="ahrefs-copy">Copy</button>
+  </div>
+  <g-scrolling-carousel role="progressbar" id="carousel-busy">Videos dang tai...</g-scrolling-carousel>
+
+  <form id="tsf" action="/search" role="search">
+    <textarea class="gLFyf" name="q" role="combobox" aria-label="Search">scottish boy names</textarea>
+    <button jsname="Tg7LZd" aria-label="Search" type="submit" id="search-submit"></button>
+  </form>
+
+  <div id="search">
+    <div id="rso">
+      <div data-attrid="AIOverviewBlock">
+        <div role="heading" aria-level="2">AI Overview</div>
+        <div class="ai-body"><p>Short AI Overview text.</p></div>
+
+        <div class="ai-follow-up">
+          <div class="prompt-shell">
+            <div class="prompt-row">
+              <textarea class="ITIRGe" placeholder="Ask anything" id="promptbox"></textarea>
+              <button aria-label="Send" id="send"></button>
+            </div>
+          </div>
+        </div>
+        <div id="responses"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.__clicked = [];
+    window.__sendCount = 0;
+    ['search-submit', 'ahrefs-copy', 'send'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function () {
+        window.__clicked.push(id);
+      });
+    });
+
+    // Nut gui: o nhap bi xoa nhung KHONG co gi khac xay ra. Dung nhu run that.
+    document.getElementById('send').addEventListener('click', function () {
+      window.__sendCount += 1;
+      document.getElementById('promptbox').value = '';
+    });
+  </script>
+</body>
+</html>

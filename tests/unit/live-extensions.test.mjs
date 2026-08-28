@@ -11,11 +11,12 @@ import assert from 'node:assert/strict';
 
 import { discoverLive } from '../../src/engine/live-extensions.mjs';
 import { describeManifest } from '../../src/browser/extension-discovery.mjs';
+import { isUsable, isDefinitelyMissing, isUnknown } from '../../src/engine/capability.mjs';
 
 const CONFIG = {
   extensions: {
     serp_export: { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', name: 'SEO SERP Extraction Tool', webstore: 'https://store/serp' },
-    ahrefs: { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', name: 'Ahrefs SEO Toolbar', webstore: 'https://store/ahrefs' },
+    ahrefs: { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', name: 'Ahrefs SEO Toolbar', webstore: 'https://store/ahrefs', detect: 'widget' },
   },
 };
 
@@ -66,17 +67,23 @@ test('doc duoc manifest tu trinh duyet dang chay -> installed + popupUrl dung', 
 
   const found = await discoverLive({ context, config: CONFIG });
 
-  assert.equal(found.serp_export.installed, true);
+  assert.equal(found.serp_export.installed, 'true');
+  assert.equal(isUsable(found.serp_export), true);
   assert.equal(found.serp_export.name, 'SEO SERP Extraction Tool');
   assert.equal(found.serp_export.version, '3.2.1');
   assert.equal(found.serp_export.source, 'live');
+  assert.equal(found.serp_export.observed_by, 'popup_probe');
   assert.equal(
     found.serp_export.popupUrl,
     'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/popup.html',
   );
-  // Cai thu hai khong co trong trinh duyet -> bao dung su that, khong doan bua.
-  assert.equal(found.ahrefs.installed, false);
-  assert.equal(found.ahrefs.reason, 'NOT_IN_RUNNING_BROWSER');
+  // Cai thu hai KHONG doc duoc trang extension. Do khong phai bang chung "chua
+  // cai" (run that 20260827-171404: Ahrefs bi ghi NOT_IN_RUNNING_BROWSER roi
+  // widget van chay va cho ra 8 Keywords Ideas). Ket luan dung la "chua biet".
+  assert.equal(found.ahrefs.installed, 'unknown');
+  assert.equal(isUnknown(found.ahrefs), true);
+  assert.equal(isDefinitelyMissing(found.ahrefs), false, 'khong duoc ket luan chua cai');
+  assert.notEqual(found.ahrefs.reason, 'NOT_IN_RUNNING_BROWSER');
   assert.equal(found.ahrefs.configuredName, 'Ahrefs SEO Toolbar');
   assert.equal(found.ahrefs.webstore, 'https://store/ahrefs');
 });
@@ -88,7 +95,8 @@ test('manifest khong doc duoc thi thu tim thang trang popup', async () => {
 
   const found = await discoverLive({ context, config: CONFIG });
 
-  assert.equal(found.serp_export.installed, true);
+  assert.equal(found.serp_export.installed, 'true');
+  assert.equal(isUsable(found.serp_export), true);
   assert.equal(found.serp_export.reason, 'MANIFEST_UNREADABLE_POPUP_GUESSED');
   assert.equal(
     found.serp_export.popupUrl,
@@ -103,7 +111,8 @@ test('trang tra ve rac (khong phai JSON) khong duoc coi la manifest', async () =
 
   const found = await discoverLive({ context, config: CONFIG });
 
-  assert.equal(found.serp_export.installed, false);
+  assert.equal(isUsable(found.serp_export), false, 'rac thi khong duoc coi la dung duoc');
+  assert.equal(found.serp_export.installed, 'unknown');
 });
 
 test('tab kiem tra luon duoc dong lai du co tim thay gi hay khong', async () => {
@@ -115,13 +124,40 @@ test('tab kiem tra luon duoc dong lai du co tim thay gi hay khong', async () => 
 test('khong mo duoc tab kiem tra thi bao ro, khong nem loi lam vo run', async () => {
   const context = { async newPage() { throw new Error('tab bi tu choi'); } };
   const warnings = [];
+  const infos = [];
   const found = await discoverLive({
-    context, config: CONFIG, logger: { warn: (m, d) => warnings.push({ m, d }) },
+    context,
+    config: CONFIG,
+    logger: { warn: (m, d) => warnings.push({ m, d }), info: (m) => infos.push(m), debug: () => {} },
   });
 
-  assert.equal(found.serp_export.installed, false);
+  assert.equal(found.serp_export.installed, 'unknown');
   assert.equal(found.serp_export.reason, 'PROBE_TAB_FAILED');
-  assert.equal(warnings.length, 1);
+  assert.equal(isDefinitelyMissing(found.serp_export), false);
+  // Khong mo duoc tab kiem tra la van de cua TA, khong phai bang chung ve
+  // extension -> khong duoc phat canh bao "thieu extension".
+  assert.deepEqual(warnings, []);
+  assert.equal(infos.length, 1);
+});
+
+test('extension detect:none khong bi probe va khong bi bao thieu', async () => {
+  const config = {
+    extensions: {
+      suggestions: {
+        id: 'cccccccccccccccccccccccccccccccc',
+        name: 'Google Search Suggestion Extractor',
+        webstore: 'https://store/sug',
+        detect: 'none',
+      },
+    },
+  };
+  const context = fakeContext({});
+  const found = await discoverLive({ context, config, logger: { debug: () => {} } });
+
+  assert.equal(found.suggestions.installed, 'unknown');
+  assert.equal(found.suggestions.reason, 'NOT_IN_WORKFLOW');
+  assert.equal(isDefinitelyMissing(found.suggestions), false);
+  assert.deepEqual(context.newPageCalls, [], 'khong duoc mo tab de probe extension ngoai workflow');
 });
 
 test('describeManifest doc duoc ca MV2 lan MV3', () => {

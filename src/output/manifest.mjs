@@ -37,6 +37,19 @@ export function buildManifest(data) {
     warnings: data.warnings ?? [],
     severity: data.severity ?? null,
     errors: data.errors ?? [],
+    // --- Quan sat hieu nang (dac ta Fast Path v1 - P1) -----------------------
+    // Ba khoa duoi day tra loi ba cau hoi da khong tra loi duoc sau run
+    // 20260827-171404: thoi gian di dau, selector nao dang phai fallback, va AI
+    // that bai o dung buoc nao.
+    stage_timings_ms: data.stageTimings ?? {},
+    fallbacks: data.fallbacks ?? [],
+    ai_submission: data.aiSubmission ?? {
+      attempts: 0,
+      tried: [],
+      confirmed_by: null,
+      last_progress_at: null,
+      terminal_reason: null,
+    },
     tool: {
       name: 'auto-serp-research',
       node: process.version,

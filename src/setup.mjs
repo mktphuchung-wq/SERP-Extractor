@@ -16,6 +16,7 @@ import { discoverEffective, resolveLoadExtensions } from './browser/bundled-exte
 import { ask, isInteractive } from './core/prompt.mjs';
 import { sleep } from './core/retry.mjs';
 import { AppError } from './core/errors.mjs';
+import { isUsable } from './engine/capability.mjs';
 
 const SETUP_MARKER = 'auto-serp-setup.json';
 
@@ -28,8 +29,8 @@ const SETUP_MARKER = 'auto-serp-setup.json';
 export function checkSetup(config, opts = {}) {
   const extensions = discoverEffective(config, opts);
   const entries = Object.entries(extensions);
-  const missing = entries.filter(([, meta]) => !meta.installed).map(([key, meta]) => ({ key, ...meta }));
-  const installed = entries.filter(([, meta]) => meta.installed).map(([key, meta]) => ({ key, ...meta }));
+  const missing = entries.filter(([, meta]) => !isUsable(meta)).map(([key, meta]) => ({ key, ...meta }));
+  const installed = entries.filter(([, meta]) => isUsable(meta)).map(([key, meta]) => ({ key, ...meta }));
   return { complete: missing.length === 0, missing, installed, extensions };
 }
 

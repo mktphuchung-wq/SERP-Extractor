@@ -79,6 +79,7 @@ export const WARNING_CODES = {
   AI_MODE_UNAVAILABLE: 'AI_MODE_UNAVAILABLE',
   AI_RESPONSE_TIMEOUT: 'AI_RESPONSE_TIMEOUT',
   AI_PROMPT_SUBMIT_FAILED: 'AI_PROMPT_SUBMIT_FAILED',
+  AI_SUBMIT_NO_PROGRESS: 'AI_SUBMIT_NO_PROGRESS',
   AI_COPY_STALE_CLIPBOARD: 'AI_COPY_STALE_CLIPBOARD',
   SELECTOR_DRIFT: 'SELECTOR_DRIFT',
   SERP_FALLBACK_USED: 'SERP_FALLBACK_USED',
@@ -149,6 +150,10 @@ export const WARNING_SEVERITY = {
   // Da dan prompt nhung khong gui duoc - thuong la bam nham control cua UI khac
   // (run that 20260827-153106: bam trung nut Search cua Google -> SERP reload).
   AI_PROMPT_SUBMIT_FAILED: SEVERITY.ERROR,
+  // O nhap bi xoa (giao dien nhan prompt) nhung KHONG co loading/response nao
+  // sinh ra trong dung khoi AI. Truoc day tinh huong nay im lang cho het 120s
+  // (run that 20260827-171404: 120,5 giay cho mot nut Copy khong bao gio toi).
+  AI_SUBMIT_NO_PROGRESS: SEVERITY.ERROR,
   // Bam Copy nhung clipboard khong doi -> noi dung dang giu la cua buoc TRUOC do
   // (run that 20260827-152533: 4 cau PAA cua Ahrefs lot vao muc AI Mode).
   AI_COPY_STALE_CLIPBOARD: SEVERITY.ERROR,

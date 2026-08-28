@@ -19,6 +19,7 @@ import { findInPersonalChrome } from './browser/extension-discovery.mjs';
 import { discoverEffective, verifyBundle } from './browser/bundled-extensions.mjs';
 import { openInEditor } from './output/notifier.mjs';
 import { ensureReady, runFirstTimeSetup, checkSetup, writeSetupMarker } from './setup.mjs';
+import { isUsable } from './engine/capability.mjs';
 
 const HELP = `
 AUTO SERP RESEARCH COLLECTOR
@@ -360,7 +361,7 @@ async function diagnose(config) {
   const extensions = discoverEffective(config);
   const missingIds = [];
   for (const [key, meta] of Object.entries(extensions)) {
-    if (meta.installed) {
+    if (isUsable(meta)) {
       const where = meta.source === 'bundled'
         ? 'dong goi san, nap bang --load-extension'
         : `da cai trong profile: ${meta.profileDir}`;
@@ -408,7 +409,7 @@ async function diagnose(config) {
 /** Kiem tra nhanh 3 extension roi thoat (dung cho script/CI). */
 function reportSetup(config) {
   const extensions = discoverEffective(config);
-  const missing = Object.entries(extensions).filter(([, meta]) => !meta.installed);
+  const missing = Object.entries(extensions).filter(([, meta]) => !isUsable(meta));
   if (!missing.length) {
     const marker = path.join(config.browser.user_data_dir, 'auto-serp-setup.json');
     try {

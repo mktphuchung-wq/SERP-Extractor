@@ -23,8 +23,19 @@
  * Tab nay mo o che do NEN (active: false). No chi doc text, khong can su kien
  * chuot/ban phim, nen han che cua tab nen (xem RemotePage._ensureVisible)
  * khong anh huong; doi lai no khong cuop man hinh cua nguoi dung.
+ *
+ * SUA 2026-08-27 (Fast Path v1 - P0):
+ *   Probe that bai KHONG con dong nghia voi "chua cai". Chrome co the tu choi
+ *   hien trang cua extension o top-level du extension dang bat - dung nhu run
+ *   20260827-171404: ca ba extension bi ghi NOT_IN_RUNNING_BROWSER, roi widget
+ *   Ahrefs van hoat dong va cho ra 8 Keywords Ideas + 4 PAA.
+ *   Ket luan duy nhat dung trong tinh huong do la `installed: 'unknown'`.
+ *   Xem src/engine/capability.mjs.
  */
 import { describeManifest } from '../browser/extension-discovery.mjs';
+import {
+  TRISTATE, OBSERVED_BY, normalizeCapability, markUnknown,
+} from './capability.mjs';
 
 /** Ten file popup thuong gap, dung khi doc duoc manifest that bai. */
 const POPUP_GUESSES = ['popup.html', 'popup/popup.html', 'index.html', 'html/popup.html'];
@@ -42,29 +53,42 @@ export async function discoverLive(args) {
   const out = {};
   if (!entries.length) return out;
 
+  // Extension khong tham gia workflow tu dong (detect: none) thi khong probe va
+  // KHONG bao thieu: Suggestions Extractor da bi thay bang DOM + endpoint
+  // autocomplete tu v2.0, probe no chi tao canh bao nhieu.
+  const probeable = entries.filter(([, meta]) => detectModeOf(meta) !== 'none');
+  for (const [key, meta] of entries) {
+    if (detectModeOf(meta) === 'none') {
+      out[key] = notInWorkflow(meta);
+      logger?.debug(`Bo qua kiem tra "${meta.name}": khong tham gia workflow tu dong.`);
+    }
+  }
+  if (!probeable.length) return out;
+
   let probe = null;
   try {
     probe = await context.newPage({ active: false });
   } catch (err) {
-    logger?.warn(
+    // Khong mo duoc tab kiem tra thi ta khong biet gi ca - do KHONG phai bang
+    // chung extension chua cai.
+    logger?.info(
       `Khong mo duoc tab de kiem tra extension: ${err.message}. `
-      + 'Se coi nhu khong dung duoc extension nao.',
-      { code: 'EXTENSION_PROBE_FAILED' },
+      + 'Trang thai extension de la "chua xac minh"; workflow van chay bang nguon thay the.',
     );
-    for (const [key, meta] of entries) {
-      out[key] = notInstalled(key, meta, 'PROBE_TAB_FAILED');
+    for (const [key, meta] of probeable) {
+      out[key] = markUnknown(base(meta), 'PROBE_TAB_FAILED');
     }
     return out;
   }
 
   try {
-    for (const [key, meta] of entries) {
+    for (const [key, meta] of probeable) {
       // Tuan tu: chung mot tab nen khong the chay song song.
       // eslint-disable-next-line no-await-in-loop
       out[key] = await probeOne(probe, key, meta, timeoutMs);
       // Ly do that bai duoc noi ra ngay: neu khong, mot loi CDP se im lang
       // bien thanh "chua cai" va ta lai roi ve dung cai bug cu.
-      if (!out[key].installed && out[key].detail) {
+      if (!out[key].usable && out[key].detail) {
         logger?.debug(`Kiem tra "${meta.name}": ${out[key].detail}`);
       }
     }
@@ -74,55 +98,83 @@ export async function discoverLive(args) {
   return out;
 }
 
-/** Ket qua "khong dung duoc", giu dung cac truong ma orchestrator dang log. */
-function notInstalled(key, meta, reason) {
+/** Cach xac minh extension: popup (mac dinh) | widget (thay tren trang) | none. */
+function detectModeOf(meta) {
+  return String(meta?.detect ?? 'popup').toLowerCase();
+}
+
+/** Cac truong dinh danh chung cho moi ban ghi. */
+function base(meta) {
   return {
-    installed: false,
     id: meta.id,
+    name: meta.name,
     configuredName: meta.name,
     webstore: meta.webstore,
+    required: meta.required === true,
+    detect: detectModeOf(meta),
     source: 'live',
-    reason,
+    profileDir: null,
   };
+}
+
+/** Extension khong nam trong workflow tu dong - khong probe, khong canh bao. */
+function notInWorkflow(meta) {
+  return normalizeCapability({
+    ...base(meta),
+    installed: TRISTATE.UNKNOWN,
+    enabled: TRISTATE.UNKNOWN,
+    usable: false,
+    observed_by: OBSERVED_BY.NATIVE_FALLBACK,
+    reason: 'NOT_IN_WORKFLOW',
+  });
 }
 
 /**
  * Kiem tra MOT extension.
+ *
+ * Ba ket cuc, khong con hai:
+ *   - doc duoc manifest / popup  -> installed: 'true',  usable: true
+ *   - khong vao duoc trang       -> installed: 'unknown' (KHONG phai 'false')
+ *
+ * Truoc day nhanh thu ba ghi `NOT_IN_RUNNING_BROWSER` roi orchestrator phat
+ * EXTENSION_MISSING; do la ket luan am tinh gia - xem chu thich dau file.
  * @returns {Promise<object>}
  */
 async function probeOne(page, key, meta, timeoutMs) {
   const { manifest, detail } = await readManifest(page, meta.id, timeoutMs);
   if (manifest) {
-    return {
+    return normalizeCapability({
+      ...base(meta),
       ...describeManifest(manifest, meta.id),
-      id: meta.id,
-      configuredName: meta.name,
-      webstore: meta.webstore,
-      source: 'live',
-      profileDir: null,
-    };
+      installed: TRISTATE.TRUE,
+      enabled: TRISTATE.TRUE,
+      usable: true,
+      observed_by: OBSERVED_BY.POPUP_PROBE,
+      reason: 'MANIFEST_READ',
+    });
   }
 
   // manifest.json khong doc duoc (Chrome co the tu choi hien no o top-level).
   // Thu tim thang trang popup: neu no tai duoc thi extension CHAC CHAN dang bat.
   const popupUrl = await findPopup(page, meta.id, timeoutMs);
   if (popupUrl) {
-    return {
-      installed: true,
-      id: meta.id,
-      name: meta.name,
-      configuredName: meta.name,
-      webstore: meta.webstore,
+    return normalizeCapability({
+      ...base(meta),
+      installed: TRISTATE.TRUE,
+      enabled: TRISTATE.TRUE,
+      usable: true,
       version: null,
       popupUrl,
       optionsUrl: null,
-      source: 'live',
-      profileDir: null,
+      observed_by: OBSERVED_BY.POPUP_PROBE,
       reason: 'MANIFEST_UNREADABLE_POPUP_GUESSED',
-    };
+    });
   }
 
-  return { ...notInstalled(key, meta, 'NOT_IN_RUNNING_BROWSER'), detail };
+  return {
+    ...markUnknown(base(meta), 'EXTENSION_PAGE_UNREADABLE'),
+    detail,
+  };
 }
 
 /**
@@ -186,4 +238,4 @@ async function findPopup(page, extensionId, timeoutMs) {
   return null;
 }
 
-export const _internals = { probeOne, readManifest, findPopup, POPUP_GUESSES };
+export const _internals = { probeOne, readManifest, findPopup, detectModeOf, POPUP_GUESSES };

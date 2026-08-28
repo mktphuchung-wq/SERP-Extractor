@@ -83,10 +83,23 @@ ai:
   open_overview_first: true
   direct_ai_mode_fallback: true
   overview_timeout_ms: 15000
-  response_timeout_ms: 120000
+  # Tran tren tuyet doi khi da QUAN SAT duoc tien trien (response dang dai them
+  # hoac loading marker hop le trong dung khoi AI).
+  response_timeout_ms: 90000
   stable_ms: 2500
   min_response_chars: 40
   poll_interval_ms: 750
+  # --- Ngan sach chong "cho mu" (dac ta Fast Path v1 - P0) --------------------
+  # Run 20260827-171404: prompt duoc coi la "da gui" nho mot marker aria-busy o
+  # ngoai khoi AI, roi tool cho du 120 giay ma khong bao gio co response nao.
+  #
+  # confirm_submit_ms  : toi da de xac nhan prompt THAT SU duoc nhan.
+  # no_progress_ms     : o nhap da trong nhung khong co loading/response -> bo som.
+  # answer_budget_ms   : chua tung thay tien trien nao -> ket thuc AI trong khoang nay.
+  submit_confirm_ms: 8000
+  submit_no_progress_ms: 5000
+  answer_budget_ms: 30000
+  submit_retries: 1
   # Sau khi bam Copy, cho bay nhieu lau de clipboard doi so voi noi dung TRUOC
   # do. Khong doi -> coi nhu that bai, khong lay noi dung cu cua buoc Ahrefs.
   clipboard_timeout_ms: 5000
@@ -106,7 +119,11 @@ extractors:
   # v2.0: bat mac dinh - dropdown DOM khong phai luc nao cung mo duoc,
   # endpoint nay la nguon du phong re va on dinh.
   allow_autocomplete_endpoint: true
-  ahrefs_timeout_ms: 15000
+  # DEADLINE TONG cho mot lan tim widget Ahrefs (khong phai ngan sach cua rieng
+  # selector dau tien - xem firstVisible trong src/browser/locator.mjs).
+  # Muc tieu Fast Path v1: moi lan tim container khong qua 5-8 giay. Lan thu hai
+  # tro di gan nhu tuc thi vi selector da thang duoc ghi nho trong run.
+  ahrefs_timeout_ms: 8000
   extension_timeout_ms: 20000
   download_timeout_ms: 30000
 
@@ -160,16 +177,33 @@ privacy:
   # "da cai nham profile". Khong doc cookie/lich su, khong dung profile do de chay.
   hint_personal_chrome: true
 
+# detect  : cach xac minh extension
+#   widget - thay truc tiep tren SERP (Ahrefs Toolbar). Probe trang
+#            chrome-extension:// chi de tham khao; khong doc duoc thi de
+#            "unknown" roi cho widget tra loi thay - KHONG bao chua cai.
+#   popup  - phai mo duoc popup/options page moi dung duoc.
+#   none   - khong tham gia workflow tu dong: khong probe, khong canh bao.
+# required: true moi duoc phep lam hong run khi chay voi --require-extensions.
 extensions:
   ahrefs:
     id: 'hgmoccdbjhknikckedaaebbpdeebhiei'
     name: 'Ahrefs SEO Toolbar'
     webstore: 'https://chromewebstore.google.com/detail/ahrefs-seo-toolbar/hgmoccdbjhknikckedaaebbpdeebhiei'
+    detect: widget
+    required: false
   serp_export:
     id: 'oijhomofkbpbjldkdhkkjkcdokdigeie'
     name: 'SEO SERP Extraction Tool'
     webstore: 'https://chromewebstore.google.com/detail/seo-serp-extraction-tool/oijhomofkbpbjldkdhkkjkcdokdigeie'
+    # Optional: khong kich hoat duoc thi native SERP extractor lam nguon chinh
+    # ngay tu dau (dac ta Fast Path v1 - P0).
+    detect: popup
+    required: false
   suggestions:
     id: 'lbgklcfhclfdeapdabmcphhkomkofbga'
     name: 'Google Search Suggestion Extractor'
     webstore: 'https://chromewebstore.google.com/detail/google-search-suggestion/lbgklcfhclfdeapdabmcphhkomkofbga'
+    # Da bi loai khoi luong tu dong tu v2.0: adapter dung DOM dropdown +
+    # endpoint autocomplete. Khong probe, khong canh bao nhu dependency.
+    detect: none
+    required: false

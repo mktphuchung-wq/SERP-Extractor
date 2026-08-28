@@ -147,6 +147,13 @@ test('browser: khong bam nham nut Search cua Google va nut Copy cua Ahrefs', { s
     assert.ok(clicked.includes('send'), 'phai bam dung nut gui cua o prompt');
     assert.ok(clicked.includes('answer-copy'), 'phai bam dung nut Copy cua cau tra loi');
 
+    // Telemetry submit (Fast Path v1 - P1): phai noi ro da xac nhan bang tin hieu nao.
+    assert.ok(result.submission.attempts > 0);
+    assert.ok(
+      ['loading@ai', 'response', 'copy', 'url'].includes(result.submission.confirmed_by),
+      `confirmed_by phai la transition moi, dang la: ${result.submission.confirmed_by}`,
+    );
+
     assert.equal(result.source, 'google_ai_overview_clipboard');
     assert.ok(result.markdown.includes('### Scottish girl names'));
     assert.ok(
@@ -157,11 +164,14 @@ test('browser: khong bam nham nut Search cua Google va nut Copy cua Ahrefs', { s
   });
 });
 
-test('browser: answer khong co nut Copy thi bao thieu, khong bam nut Copy cua Ahrefs', { skip }, async () => {
+test('browser: answer khong co nut Copy van phai lay duoc noi dung tu response DOM', { skip }, async () => {
   await withPage(async (page) => {
     // #nocopy: prompt gui duoc nhung cau tra loi khong kem nut Copy - dung tinh
     // huong cuoi cua run 20260827-153106. Code cu roi xuong selector
     // `text=^copy$` va bam trung nut Copy cua thanh Ahrefs o cuoi trang.
+    //
+    // Tieu chi nghiem thu Fast Path v1: "Response xuat hien nhung khong co Copy
+    // van phai lay duoc noi dung" -> doc thang response DOM, khong bao timeout.
     await page.goto(`${fixtureUrl('ai-overview-submit-traps.html')}#nocopy`);
     page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
 
@@ -180,8 +190,13 @@ test('browser: answer khong co nut Copy thi bao thieu, khong bam nut Copy cua Ah
       !clicked.includes('ahrefs-copy'),
       `khong duoc bam nut Copy cua thanh Ahrefs (da bam: ${clicked.join(', ')})`,
     );
-    assert.ok(result.warnings.includes('AI_RESPONSE_TIMEOUT'));
-    assert.equal(result.source, 'none');
+    assert.equal(result.source, 'google_ai_overview_dom');
+    assert.ok(result.markdown.includes('### Scottish girl names'));
+    assert.ok(result.chars > 50);
+    assert.ok(
+      !result.warnings.includes('AI_RESPONSE_TIMEOUT'),
+      'co noi dung roi thi khong duoc bao timeout',
+    );
     assert.ok(
       !result.markdown.includes('What is the prettiest'),
       'khong duoc lay noi dung PAA con sot trong clipboard',
@@ -189,11 +204,15 @@ test('browser: answer khong co nut Copy thi bao thieu, khong bam nut Copy cua Ah
   });
 });
 
-test('browser: clipboard khong doi sau khi bam Copy thi bao loi, khong lay noi dung cu', { skip }, async () => {
+test('browser: clipboard khong doi thi doc response DOM, khong lay noi dung cu', { skip }, async () => {
   await withPage(async (page) => {
-    await page.goto(fixtureUrl('ai-overview-submit-traps.html'));
     // Mo phong dung tinh huong run 20260827-152533: nut Copy khong ghi gi moi,
     // clipboard van giu nguyen noi dung cua buoc PAA truoc do.
+    //
+    // Truoc Fast Path v1: bo cuoc, muc "## AI Mode" chi con mot dong canh bao.
+    // Bay gio: van bam Copy TRUOC (nguon uu tien), phat hien clipboard khong doi,
+    // roi doc thang response DOM. Noi dung PAA tuyet doi khong duoc lot vao.
+    await page.goto(fixtureUrl('ai-overview-submit-traps.html'));
     await page.evaluate(() => {
       window.__copyFrozen = window.__copiedText;
       Object.defineProperty(window, '__copiedText', {
@@ -209,13 +228,63 @@ test('browser: clipboard khong doi sau khi bam Copy thi bao loi, khong lay noi d
       prompt: 'Analyze the search intent behind this keyword.',
     });
 
-    assert.ok(result.warnings.includes('AI_COPY_STALE_CLIPBOARD'));
-    assert.equal(result.source, 'none');
+    const clicked = await page.evaluate(() => window.__clicked);
+    assert.ok(clicked.includes('answer-copy'), 'van phai thu nut Copy cua cau tra loi truoc');
+    assert.ok(!clicked.includes('ahrefs-copy'), 'khong duoc bam nut Copy cua thanh Ahrefs');
+    assert.equal(result.source, 'google_ai_overview_dom');
+    assert.ok(result.markdown.includes('### Scottish girl names'));
     assert.ok(
       !result.markdown.includes('What is the prettiest'),
       'noi dung cu cua buoc PAA khong duoc lot vao muc AI Mode',
     );
-    assert.match(result.markdown, /^>/, 'phai la blockquote canh bao');
+  });
+});
+
+/**
+ * Hoi quy run that 20260827-171404 - kieu hong ton nhieu thoi gian nhat (120,5
+ * giay cho mot nut Copy khong bao gio toi). Xem chu thich dau fixture.
+ *
+ * Ba tieu chi nghiem thu cua Fast Path v1 nam ca o day:
+ *   - fixture co [aria-busy=true] NGOAI khoi AI khong duoc xac nhan submit
+ *   - input bi clear nhung khong sinh response phai dung duoi 35 giay
+ *   - phai phan loai dung AI_SUBMIT_NO_PROGRESS, khong bia noi dung
+ */
+test('browser: marker aria-busy ngoai khoi AI khong duoc coi la "da gui"', { skip }, async () => {
+  await withPage(async (page) => {
+    await page.goto(fixtureUrl('ai-overview-global-busy.html'));
+    page.readClipboardText = () => page.evaluate(() => window.__copiedText ?? '');
+
+    const startedAt = Date.now();
+    const result = await collectAiAnswer({
+      page,
+      // response_timeout_ms co dai bao nhieu cung khong duoc dung toi: chua he
+      // co tien trien nao thi ngan sach la answer_budget_ms.
+      config: { ai: { ...AI_CONFIG.ai, response_timeout_ms: 120000, answer_budget_ms: 8000 } },
+      selectors,
+      logger,
+      keyword: 'scottish boy names',
+      prompt: 'Analyze the search intent behind this keyword.',
+    });
+    const elapsed = Date.now() - startedAt;
+
+    assert.ok(elapsed < 35000, `phai dung duoi 35 giay, dang mat ${Math.round(elapsed / 1000)}s`);
+    assert.ok(
+      result.warnings.includes('AI_SUBMIT_NO_PROGRESS'),
+      `phai phan loai AI_SUBMIT_NO_PROGRESS, dang co: ${result.warnings.join(', ')}`,
+    );
+    assert.equal(result.source, 'none');
+    assert.equal(result.chars, 0);
+    assert.match(result.markdown, /^>/, 'phai la blockquote canh bao, khong bia noi dung');
+    assert.equal(result.submission.confirmed_by, null, 'khong duoc xac nhan submit');
+    assert.equal(result.submission.terminal_reason, 'NO_PROGRESS');
+
+    const clicked = await page.evaluate(() => window.__clicked);
+    assert.ok(!clicked.includes('search-submit'), 'khong duoc bam nut Search cua Google');
+    assert.ok(!clicked.includes('ahrefs-copy'), 'khong duoc bam nut Copy cua thanh Ahrefs');
+
+    // Dung mot lan thu lai theo dac ta, khong bam vo han.
+    const sendCount = await page.evaluate(() => window.__sendCount);
+    assert.ok(sendCount >= 1 && sendCount <= 2, `so lan gui phai la 1-2, dang la ${sendCount}`);
   });
 });
 

@@ -24,7 +24,12 @@ import { Mutex, NO_LOCK } from './core/mutex.mjs';
 import { startEngine, ENGINES } from './engine/index.mjs';
 import { discoverLive } from './engine/live-extensions.mjs';
 import { discoverEffective } from './browser/bundled-extensions.mjs';
+import {
+  normalizeCapability, summariseCapability, describeCapability, markObserved,
+  isUsable, isDefinitelyMissing, OBSERVED_BY,
+} from './engine/capability.mjs';
 import { createCapture, NO_CAPTURE } from './browser/dom-capture.mjs';
+import { createSelectorMemory } from './browser/selector-memory.mjs';
 
 import { buildSearchUrl, openSerp, verifySerpUrl } from './adapters/google-search.mjs';
 import { collectAiAnswer } from './adapters/ai-mode.mjs';
@@ -107,6 +112,13 @@ export async function runWorkflow(args) {
     sources: {}, counts: {}, warnings: [], extensions: {},
     totalSteps: STEPS_SEQUENTIAL,
     pauseLock: new Mutex('manual-pause'),
+    // Bo nho selector dung chung ca run: selector nao da thang thi lan sau thu
+    // truoc, khong duyet lai tu dau (dac ta Fast Path v1 - P0).
+    selectorMemory: createSelectorMemory(),
+    // Widget Ahrefs resolve mot lan, dung cho Keywords Ideas / PAA / country.
+    ahrefsCache: {},
+    timings: {},
+    aiSubmission: null,
   };
 
   // --capture-dom: chup DOM that de soan selector tu bang chung
@@ -122,12 +134,15 @@ export async function runWorkflow(args) {
 
   let engineSession = null;
   try {
-    await stepStartBrowser(state, (s) => { engineSession = s; }, options);
-    await stepOpenSerp(state);
+    await timed(state, 'start-browser', () => stepStartBrowser(state, (s) => { engineSession = s; }, options));
+    await timed(state, 'open-serp', () => stepOpenSerp(state));
 
-    for (const phase of ORDERED_COLLECTION_STEPS) await phase.run(state);
+    for (const phase of ORDERED_COLLECTION_STEPS) {
+      // eslint-disable-next-line no-await-in-loop
+      await timed(state, phase.name, () => phase.run(state));
+    }
 
-    return await stepWriteAndValidate(state, options);
+    return await timed(state, 'write-and-validate', () => stepWriteAndValidate(state, options));
   } catch (err) {
     logger.error(`Run that bai: ${err.message}`, {
       code: err instanceof AppError ? err.code : 'UNEXPECTED_ERROR',
@@ -148,6 +163,9 @@ export async function runWorkflow(args) {
       extensions: summariseExtensions(state.extensions),
       chromeVersion: state.chromeVersion,
       engine: state.engine ?? null,
+      stageTimings: state.timings,
+      fallbacks: state.selectorMemory.fallbacks(),
+      aiSubmission: state.aiSubmission,
     }));
     notifyFailure(config, {
       keyword,
@@ -208,27 +226,60 @@ async function stepStartBrowser(state, setEngine, options) {
     state.extensions = discoverEffective(config);
   }
 
+  // Moi ban ghi ve cung mot hinh dang tristate (dac ta Fast Path v1 - P0).
+  for (const [key, meta] of Object.entries(state.extensions)) {
+    state.extensions[key] = normalizeCapability({
+      ...meta,
+      required: meta.required === true || config.extensions?.[key]?.required === true,
+    });
+  }
+
   const howToFix = session.engine === ENGINES.BRIDGE
     ? 'Cai/bat extension trong chinh Chrome nay roi chay lai'
     : 'Chay INSTALL.bat de cai lai, hoac cai tay tai';
   for (const [key, meta] of Object.entries(state.extensions)) {
-    if (meta.installed) {
+    const name = meta.name ?? meta.configuredName;
+    if (isUsable(meta)) {
       const where = { bundled: 'dong goi san', live: 'trinh duyet cua ban' }[meta.source]
-        ?? `profile: ${meta.profileDir}`;
-      logger.info(
-        `Extension OK: ${meta.name ?? meta.configuredName}`
-        + `${meta.version ? ` v${meta.version}` : ''} [${where}]`,
-      );
-    } else {
-      logger.warn(
-        `Khong dung duoc extension "${meta.configuredName}" (${meta.id}): ` +
-        `${meta.bundleReason ?? meta.reason}. ${howToFix}: ${meta.webstore}`,
-        { code: WARNING_CODES.EXTENSION_MISSING, extension: key, reason: meta.bundleReason ?? meta.reason },
-      );
+        ?? (meta.profileDir ? `profile: ${meta.profileDir}` : meta.observed_by);
+      logger.info(`Extension OK: ${name}${meta.version ? ` v${meta.version}` : ''} [${where}]`);
+      continue;
     }
+    if (isDefinitelyMissing(meta)) {
+      // CHI truong hop nay moi la bang chung that su "chua cai / dang tat".
+      logger.warn(
+        `Khong dung duoc extension "${meta.configuredName ?? name}" (${meta.id}): `
+        + `${meta.reason}. ${howToFix}: ${meta.webstore}`,
+        { code: WARNING_CODES.EXTENSION_MISSING, extension: key, reason: meta.reason },
+      );
+      continue;
+    }
+    // KHONG doc duoc trang chrome-extension:// thi ta khong biet gi ca. Truoc day
+    // cho nay ghi NOT_IN_RUNNING_BROWSER + EXTENSION_MISSING cho ca ba extension,
+    // trong khi widget Ahrefs van chay binh thuong ngay sau do
+    // (run that 20260827-171404). Ket luan am tinh gia -> chi ghi INFO.
+    logger.info(
+      `Extension "${meta.configuredName ?? name}": ${describeCapability(meta)}. `
+      + (meta.detect === 'widget'
+        ? 'Se xac minh bang chinh widget tren SERP.'
+        : 'Workflow dung nguon thay the (DOM/endpoint) neu can.'),
+    );
   }
-  if (options.requireExtensions && Object.values(state.extensions).some((m) => !m.installed)) {
+
+  const missingRequired = Object.values(state.extensions)
+    .filter((m) => m.required && isDefinitelyMissing(m));
+  if (options.requireExtensions && missingRequired.length) {
     throw new AppError('EXTENSION_MISSING', 'Thieu extension bat buoc. Chay RUN.bat va cai dat khi duoc hoi.');
+  }
+}
+
+/** Do thoi gian tung stage de dua vao manifest (P1 - quan sat hieu nang). */
+async function timed(state, name, fn) {
+  const startedAt = Date.now();
+  try {
+    return await fn();
+  } finally {
+    state.timings[name] = (state.timings[name] ?? 0) + (Date.now() - startedAt);
   }
 }
 
@@ -282,9 +333,18 @@ async function stepOpenSerp(state) {
     }
   }
 
-  const market = await softly('ahrefs-us-market', () => verifyUsMarket(state.page, selectors, logger), logger);
-  if (market.value?.warning) state.warnings.push(market.value.warning);
-  state.sources.market_verified = Boolean(market.value?.verified);
+  // Country cua Ahrefs KHONG duoc kiem tra o day nua: luc nay widget chua render
+  // nen ket luan luon la "khong doc duoc" (run that 20260827-171404 -> canh bao
+  // AHREFS_REGION_NOT_VERIFIED gan nhu tat yeu). Kiem tra da doi xuong buoc
+  // Ahrefs, sau khi widget resolve xong (dac ta Fast Path v1 - P1).
+  logger.info(
+    `google_market=${config.search.country} verified_by=url_params `
+    + `(hl=${config.search.language}, pws=${config.search.personalization ? 1 : 0})`,
+  );
+  state.sources.google_market = config.search.country;
+  state.sources.google_market_verified_by = 'url_params';
+  state.sources.market_verified = false;
+  state.sources.ahrefs_market = 'unknown';
 }
 
 /* ---------------------------------------------- Step 3-7 (che do tuan tu) */
@@ -305,6 +365,7 @@ async function stepAi(state) {
     logger,
     keyword: state.keyword,
     prompt: state.prompt,
+    memory: state.selectorMemory,
   }), logger);
   setAiResult(state, result.value);
 
@@ -315,9 +376,47 @@ async function stepKeywordIdeas(state) {
   logger.step(4, state.totalSteps, 'Thu thap Keywords Ideas tu Ahrefs...');
   const result = await softly('keyword-ideas', () => collectKeywordIdeas({
     page: state.page, config: state.config, selectors: state.selectors, logger, lock: NO_LOCK,
+    memory: state.selectorMemory, cache: state.ahrefsCache,
   }), logger);
   setKeywordIdeas(state, result.value);
+
+  // Widget da hien tren SERP la bang chung TRUC TIEP extension dang chay - manh
+  // hon moi ket qua probe chrome-extension:// (dac ta Fast Path v1 - P0).
+  if (state.ahrefsCache.widget && state.extensions.ahrefs) {
+    state.extensions.ahrefs = markObserved(
+      state.extensions.ahrefs, OBSERVED_BY.WIDGET, 'AHREFS_WIDGET_VISIBLE',
+    );
+    logger.info('Xac nhan Ahrefs SEO Toolbar dang hoat dong (thay widget tren SERP).');
+  }
+
+  await verifyAhrefsMarket(state);
   await humanDelay(state.config, logger);
+}
+
+/**
+ * Country cua Ahrefs - chi kiem tra MOT LAN va chi khi widget da san sang.
+ * Log tach bach hai thi truong de khong con lan lon:
+ *   google_market : do URL params quyet dinh, luon xac minh duoc
+ *   ahrefs_market : trang thai noi bo cua toolbar, co the khong doc duoc
+ */
+async function verifyAhrefsMarket(state, opts = {}) {
+  const { logger, selectors } = state;
+  if (state.marketChecked) return;
+
+  const widget = state.ahrefsCache.widget ?? null;
+  // Chua co widget va van con buoc Ahrefs phia sau -> de lan sau kiem tra.
+  if (!widget && !opts.final) return;
+  state.marketChecked = true;
+  const market = await softly(
+    'ahrefs-us-market',
+    () => verifyUsMarket(state.page, selectors, logger, { widget }),
+    logger,
+  );
+  const value = market.value ?? {};
+  if (value.warning) state.warnings.push(value.warning);
+  state.sources.market_verified = Boolean(value.verified);
+  state.sources.ahrefs_market = value.market ?? 'unknown';
+  logger.info(`ahrefs_market=${state.sources.ahrefs_market}`);
 }
 
 async function stepPaa(state) {
@@ -325,8 +424,10 @@ async function stepPaa(state) {
   logger.step(5, state.totalSteps, 'Thu thap People Also Asked...');
   const result = await softly('paa', () => collectPaa({
     page: state.page, config: state.config, selectors: state.selectors, logger, lock: NO_LOCK,
+    memory: state.selectorMemory, cache: state.ahrefsCache,
   }), logger);
   setPaa(state, result.value);
+  await verifyAhrefsMarket(state, { final: true });
   await humanDelay(state.config, logger);
 }
 
@@ -342,6 +443,7 @@ async function stepSuggestions(state) {
     keyword: state.keyword,
     lock: NO_LOCK,
     capture: state.capture,
+    memory: state.selectorMemory,
   }), logger);
   setSuggestions(state, result.value);
   await humanDelay(state.config, logger);
@@ -489,9 +591,9 @@ async function stepWriteAndValidate(state, options) {
   const strictSelectors = config.logging?.strict_selectors === true;
   const bySeverity = groupBySeverity(warnings, { strictSelectors });
   // v2.0: canh bao muc INFO (dung fallback nhung du lieu van dung) KHONG lam ban status.
-  const status = (bySeverity.WARN.length || bySeverity.ERROR.length)
-    ? 'COMPLETED_WITH_WARNINGS'
-    : 'SUCCESS';
+  // Fast Path v1 (P1): tach rieng PARTIAL de doc mot dong la biet bundle hop le
+  // nhung MAT han mot section (AI / Ahrefs / PAA), khac han "co canh bao nhe".
+  const status = statusOf(bySeverity);
   const completedAt = new Date();
 
   const manifestPath = writeManifest(path.join(config.output.logs_root, state.runId), buildManifest({
@@ -514,6 +616,9 @@ async function stepWriteAndValidate(state, options) {
     engine: state.engine ?? null,
     mode: 'sequential',
     severity: bySeverity,
+    stageTimings: state.timings,
+    fallbacks: state.selectorMemory.fallbacks(),
+    aiSubmission: state.aiSubmission,
   }));
 
   cleanStaging(state.stagingDir, options.keepStaging);
@@ -558,6 +663,7 @@ function setAiResult(state, value) {
   };
   state.sources.ai = state.ai.source;
   state.counts.ai_chars = state.ai.chars ?? 0;
+  state.aiSubmission = state.ai.submission ?? null;
   state.warnings.push(...(state.ai.warnings ?? []));
 }
 
@@ -727,15 +833,22 @@ function dedupeWarnings(list) {
   return Array.from(new Set((list ?? []).filter(Boolean)));
 }
 
+/**
+ * SUCCESS  - moi section co du lieu, khong co canh bao WARN/ERROR nao.
+ * PARTIAL  - bundle hop le nhung mat AI/Ahrefs/PAA (co canh bao muc ERROR).
+ * COMPLETED_WITH_WARNINGS - du lieu con du, chi co canh bao muc WARN.
+ * FAILED   - nem o nhanh catch cua runWorkflow (output/nguon bat buoc khong hop le).
+ */
+export function statusOf(bySeverity) {
+  if (bySeverity.ERROR?.length) return 'PARTIAL';
+  if (bySeverity.WARN?.length) return 'COMPLETED_WITH_WARNINGS';
+  return 'SUCCESS';
+}
+
 function summariseExtensions(extensions) {
   const out = {};
   for (const [key, meta] of Object.entries(extensions ?? {})) {
-    out[key] = {
-      id: meta.id,
-      installed: meta.installed,
-      version: meta.version ?? null,
-      profile: meta.profileDir ?? null,
-    };
+    out[key] = summariseCapability(meta);
   }
   return out;
 }

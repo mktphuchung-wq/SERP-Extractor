@@ -115,7 +115,9 @@ test('E2E cuc bo: mot run tao dung 1 MD + 2 CSV va qua quality gate', { skip }, 
       'Filipino vs Samoan page 2.csv',
       'Filipino vs Samoan.md',
     ]);
-    assert.equal(result.status, 'COMPLETED_WITH_WARNINGS', 'thieu Ahrefs/extension nen phai co canh bao');
+    // Fast Path v1 (P1): mat han mot section bat buoc (Keywords Ideas) -> PARTIAL,
+    // khac han COMPLETED_WITH_WARNINGS ("du lieu con du, chi co canh bao nhe").
+    assert.equal(result.status, 'PARTIAL', 'mat Keywords Ideas nen phai la PARTIAL');
 
     // --- Markdown: dung 4 heading, co noi dung AI that ----------------------
     const markdown = fs.readFileSync(path.join(result.outputDir, 'Filipino vs Samoan.md'), 'utf8');
@@ -161,7 +163,11 @@ test('E2E cuc bo: mot run tao dung 1 MD + 2 CSV va qua quality gate', { skip }, 
     assert.ok(!result.manifestPath.startsWith(result.outputDir));
     assert.ok(fs.existsSync(path.join(result.logDir, 'run.log')));
     const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'));
-    assert.equal(manifest.status, 'COMPLETED_WITH_WARNINGS');
+    assert.equal(manifest.status, 'PARTIAL');
+    // Quan sat hieu nang: manifest phai noi duoc thoi gian di dau va AI hong o dau.
+    assert.ok(manifest.stage_timings_ms['ai-overview-page-1'] >= 0);
+    assert.ok(Array.isArray(manifest.fallbacks));
+    assert.ok(manifest.ai_submission, 'phai ghi lai qua trinh gui prompt AI');
     assert.equal(manifest.counts.serp_page_1_rows, 2);
     assert.equal(manifest.counts.serp_page_2_rows, 3);
     assert.equal(manifest.market.country, 'us');
