@@ -38,6 +38,7 @@ export class RemotePage {
 
     this.keyboard = {
       press: async (key) => {
+        await this._ensureVisible();
         const session = await this._session();
         await dispatchKey(session, key);
       },
@@ -342,20 +343,35 @@ export class RemotePage {
    * can thiet voi engine nay - xem src/core/mutex.mjs.
    */
   async _ensureVisible() {
-    if (this._visible) return;
+    const session = await this._session();
+    const readState = () => session.evaluate(
+      '({ visibility: document.visibilityState, focused: document.hasFocus() })',
+    ).catch(() => null);
+
+    // `_visible` chi la cache noi bo. Neu nguoi dung tu chuyen sang tab khac,
+    // extension khong gui su kien de cap nhat cache nay. Luon kiem tra trang thai
+    // that truoc moi su kien trusted de khong lam roi phim/chuot vao tab nen.
+    let state = await readState();
+    if (state?.visibility === 'visible' && state?.focused === true) {
+      this._visible = true;
+      this._context._markVisible(this);
+      return;
+    }
+
+    this._visible = false;
     await this.bringToFront();
 
-    // Cho DEN KHI trang thuc su nhin thay duoc, thay vi cho mot khoang co dinh.
-    // Chrome hoan viec ve tab nen, nen ngay sau activateTab thi
-    // document.visibilityState van con 'hidden' them mot luc; gui su kien
-    // trong khoang do la mat trang.
-    const session = await this._session();
+    // Cho DEN KHI trang thuc su hien thi VA nhan focus, thay vi cho mot khoang
+    // co dinh. Chrome co the hoan viec active tab; gui su kien trong khoang do
+    // se mat trang du CDP van tra ve thanh cong.
     const deadline = Date.now() + 5000;
     for (;;) {
-      const state = await session.evaluate('document.visibilityState').catch(() => null);
-      if (state === 'visible') return;
+      state = await readState();
+      if (state?.visibility === 'visible' && state?.focused === true) return;
       if (Date.now() >= deadline) {
-        this._logger?.debug('Tab van khong hien thi sau 5s; van thu thao tac.');
+        this._logger?.debug(
+          `Tab van chua active sau 5s; van thu thao tac (${JSON.stringify(state)}).`,
+        );
         return;
       }
       await new Promise((resolve) => { setTimeout(resolve, 100); });

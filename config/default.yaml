@@ -97,6 +97,8 @@ ai:
   # no_progress_ms     : o nhap da trong nhung khong co loading/response -> bo som.
   # answer_budget_ms   : chua tung thay tien trien nao -> ket thuc AI trong khoang nay.
   submit_confirm_ms: 8000
+  # Prompt van con nguyen sau thoi gian nay: su kien gui da bi mat, retry som.
+  submit_grace_ms: 2500
   submit_no_progress_ms: 5000
   answer_budget_ms: 30000
   submit_retries: 1

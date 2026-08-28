@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 
 import { _internals } from '../../src/adapters/ai-mode.mjs';
 
-const { verifySubmitted } = _internals;
+const { sendPrompt, verifySubmitted } = _internals;
 
 const PROMPT_SEL = {
   copy_button: [{ type: 'css', css: 'button[aria-label="Copy text"]' }],
@@ -165,4 +165,54 @@ test('NO_PROGRESS phai tra ve trong khoang no_progress, khong doi het timeout', 
 
   assert.equal(result.reason, 'NO_PROGRESS');
   assert.ok(elapsed < 3000, `phai bo som, dang mat ${elapsed}ms`);
+});
+
+test('Enter bi mat khi tab nen -> kich hoat/dien lai va retry Enter, khong can nut Send', async () => {
+  let value = 'prompt test';
+  let loading = 0;
+  let presses = 0;
+  const input = {
+    async click() {},
+    async fill(next) { value = next; },
+    async inputValue() { return value; },
+    async press(key) {
+      assert.equal(key, 'Enter');
+      presses += 1;
+      if (presses === 2) {
+        value = '';
+        loading = 1;
+      }
+    },
+  };
+  const page = fakePage({
+    '[aria-busy="true"]': 0,
+    '[data-rp-response]': 0,
+    'button[aria-label="Copy text"]': 0,
+  });
+  const aiScope = {
+    locator(css) {
+      return { async count() { return css === '[aria-busy="true"]' ? loading : 0; } };
+    },
+  };
+
+  const result = await sendPrompt({
+    page,
+    input,
+    promptSel: { ...PROMPT_SEL, submit: [], control_exclude: [], container_up: [1] },
+    baseline: { copy: [0], response: 0, loading: 0, url: 'https://www.google.com/search?q=x' },
+    aiScope,
+    prompt: 'prompt test',
+    aiCfg: {
+      submit_confirm_ms: 500,
+      submit_grace_ms: 80,
+      submit_no_progress_ms: 120,
+      submit_retries: 1,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.via, 'retry@Enter');
+  assert.equal(result.signal, 'loading@ai');
+  assert.equal(presses, 2);
+  assert.deepEqual(result.attempts.map((attempt) => attempt.reason), ['NO_SIGNAL', null]);
 });

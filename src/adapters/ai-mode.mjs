@@ -169,7 +169,9 @@ export async function collectAiAnswer(args) {
                   + 'Dung som thay vi cho het thoi gian (khong co bang chung Google da nhan prompt).'
                 : reason === 'RELOADED'
                   ? 'Bam nham control lam trang tai lai; prompt da mat.'
-                  : 'Da dan prompt nhung khong gui di duoc (khong tim thay nut gui hop le).',
+                  : reason === 'NO_SIGNAL'
+                    ? 'Google khong nhan su kien submit sau khi tool da kich hoat lai tab va thu Enter.'
+                    : 'Da dan prompt nhung khong gui di duoc (khong tim thay nut gui hop le).',
               { code, reason, attempts: submission.attempts },
             );
             ctx.warnings.push(code);
@@ -753,9 +755,9 @@ async function readInputIdentity(input) {
  * Google (`button[type='submit']`), trang tai lai, prompt bay mat, va vong cho
  * Copy chay du 120s moi bao timeout (run that 20260827-153106).
  *
- * Rieng ket cuc "o nhap trong nhung khong co tien trien" duoc thu LAI DUNG MOT
- * LAN bang nut gui trong khoi prompt, roi dung han - khong cho tiep
- * (dac ta Fast Path v1 - P0 muc 4).
+ * Neu Enter khong den duoc trang (thuong do nguoi dung vua chuyen tab), hoac o
+ * nhap da trong nhung chua co tien trien, thu lai DUNG MOT LAN. Retry uu tien
+ * Enter vi giao dien Google co the khong render nut Send rieng.
  */
 async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, prompt, aiCfg }) {
   const exclude = promptSel.control_exclude ?? [];
@@ -763,6 +765,7 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
   const attempts = [];
   const verifyOpts = {
     timeoutMs: cfg.submit_confirm_ms ?? 8000,
+    graceMs: cfg.submit_grace_ms ?? 2500,
     noProgressMs: cfg.submit_no_progress_ms ?? 5000,
   };
   const verify = async (via) => {
@@ -777,14 +780,14 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
   const done = (via, result) => ({ ok: true, via, signal: result.signal, attempts });
   const failed = (reason, via) => ({ ok: false, reason, via, attempts });
 
-  // AI_SUBMIT_NO_PROGRESS chi duoc thu lai DUNG MOT LAN cho ca luot gui, du no
-  // xay ra o Enter hay o nut gui (dac ta Fast Path v1 - P0 muc 4).
+  // NO_SIGNAL va NO_PROGRESS chi duoc thu lai DUNG MOT LAN cho ca luot gui.
   let retried = false;
-  const noProgressPath = async (via) => {
-    if (retried || !(cfg.submit_retries ?? 1)) return failed('NO_PROGRESS', via);
+  const retryPath = async (reason, via) => {
+    if (retried || !(cfg.submit_retries ?? 1)) return failed(reason, via);
     retried = true;
     return retryScopedSubmit({
-      page, input, promptSel, logger, prompt, exclude, verify, attempts, retries: 1,
+      page, input, promptSel, logger, prompt, exclude, verify, attempts,
+      reason, retries: 1,
     });
   };
 
@@ -795,7 +798,9 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
     const result = await verify('Enter');
     if (result.ok) return done('Enter', result);
     if (result.reason === 'RELOADED') return failed('RELOADED', 'Enter');
-    if (result.reason === 'NO_PROGRESS') return noProgressPath('Enter');
+    if (result.reason === 'NO_SIGNAL' || result.reason === 'NO_PROGRESS') {
+      return retryPath(result.reason, 'Enter');
+    }
   } catch (err) {
     logger?.debug(`Nhan Enter tren o prompt khong thanh cong: ${err.message}`);
   }
@@ -817,7 +822,9 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
     if (result.ok) return done(`submit@up${up}`, result);
     if (result.reason === 'RELOADED') return failed('RELOADED', `submit@up${up}`);
     // eslint-disable-next-line no-await-in-loop
-    if (result.reason === 'NO_PROGRESS') return noProgressPath(`submit@up${up}`);
+    if (result.reason === 'NO_SIGNAL' || result.reason === 'NO_PROGRESS') {
+      return retryPath(result.reason, `submit@up${up}`);
+    }
   }
 
   // 3) Quet toan trang - van qua bo loc control_exclude.
@@ -831,7 +838,9 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
     const result = await verify('submit@page');
     if (result.ok) return done('submit@page', result);
     if (result.reason === 'RELOADED') return failed('RELOADED', 'submit@page');
-    if (result.reason === 'NO_PROGRESS') return noProgressPath('submit@page');
+    if (result.reason === 'NO_SIGNAL' || result.reason === 'NO_PROGRESS') {
+      return retryPath(result.reason, 'submit@page');
+    }
   }
 
   // Chua tung co dump nao chup luc o prompt DA co chu - moi dump cu deu chup
@@ -841,23 +850,39 @@ async function sendPrompt({ page, input, promptSel, logger, baseline, aiScope, p
 }
 
 /**
- * Duong xu ly AI_SUBMIT_NO_PROGRESS: o nhap bi xoa (giao dien co ve da nhan
- * prompt) nhung khong co loading/response nao trong khoi AI.
- *
- * Dien lai prompt va bam nut gui DUOC SCOPE DUNG dung mot lan. Van khong tien
- * trien thi dung han - khong cho toi 120 giay nhu truoc.
+ * Dien lai prompt va thu Enter dung mot lan. Neu Google co render nut Send thi
+ * nut do moi la fallback cuoi. Cach nay xu ly ca su kien Enter bi mat khi tab
+ * dang nen va giao dien chi co textarea, khong co nut submit.
  */
 async function retryScopedSubmit(args) {
   const {
     page, input, promptSel, logger, prompt, exclude, verify, attempts,
   } = args;
   const retries = Math.max(0, Number(args.retries ?? 1));
-  if (!retries) return { ok: false, reason: 'NO_PROGRESS', via: 'Enter', attempts };
+  const initialReason = args.reason ?? 'NO_PROGRESS';
+  if (!retries) return { ok: false, reason: initialReason, via: 'Enter', attempts };
 
   logger?.info(
-    'O nhap trong nhung chua co dau hieu AI tra loi. Dien lai prompt va thu nut gui '
-    + 'trong khoi prompt dung mot lan.',
+    'Lan gui dau chua duoc Google xac nhan. Kich hoat lai tab, dien lai prompt '
+    + 'va thu Enter dung mot lan.',
   );
+
+  try {
+    await input.click({ timeout: 3000 });
+    await input.fill(prompt, { timeout: 5000 });
+    await sleep(250);
+    await stampPage(page);
+    await input.press('Enter', { timeout: 5000 });
+    const result = await verify('retry@Enter');
+    if (result.ok) {
+      return { ok: true, via: 'retry@Enter', signal: result.signal, attempts };
+    }
+    if (result.reason === 'RELOADED') {
+      return { ok: false, reason: 'RELOADED', via: 'retry@Enter', attempts };
+    }
+  } catch (err) {
+    logger?.debug(`Thu lai Enter tren o prompt khong thanh cong: ${err.message}`);
+  }
 
   for (const up of scopeLevels(promptSel.container_up)) {
     // eslint-disable-next-line no-await-in-loop
@@ -886,7 +911,8 @@ async function retryScopedSubmit(args) {
     break;
   }
 
-  return { ok: false, reason: 'NO_PROGRESS', via: 'retry', attempts };
+  const lastReason = attempts.at(-1)?.reason ?? initialReason;
+  return { ok: false, reason: lastReason, via: 'retry', attempts };
 }
 
 /**
