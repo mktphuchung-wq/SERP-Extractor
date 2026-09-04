@@ -24,7 +24,8 @@ export function redact(value, enabled = true, depth = 0) {
   if (typeof value === 'string') {
     return value
       .replace(/(SID|HSID|SSID|APISID|SAPISID|__Secure-[\w-]+)=[^;\s]+/gi, '$1=[redacted]')
-      .replace(/(authorization:\s*)\S+/gi, '$1[redacted]');
+      .replace(/(authorization:\s*)\S+/gi, '$1[redacted]')
+      .replace(/([?&](?:token|access_token|api[-_]?key|session)=)[^&#\s)]+/gi, '$1[redacted]');
   }
   return value;
 }

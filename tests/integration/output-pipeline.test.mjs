@@ -178,15 +178,16 @@ test('output: manifest ky thuat nam trong logs, khong nam trong output folder', 
   }
 });
 
-test('output: quality gate bat truong hop thieu file page 2', () => {
+test('output: quality gate bat truong hop thieu file page 2 truoc khi publish', () => {
   const tmp = makeTempDir();
   try {
-    const { base, staged } = buildRunArtifacts(tmp.dir);
+    const { base, staged, stagingDir } = buildRunArtifacts(tmp.dir);
+    fs.rmSync(staged.csv2);
     const outputDir = path.join(tmp.dir, 'output', base);
-    moveToOutput({ files: [staged.md, staged.csv1], outputDir });
-    const validation = validateRun({ dir: outputDir, base });
+    const validation = validateRun({ dir: stagingDir, base });
     assert.equal(validation.ok, false);
     assert.ok(validation.problems.some((p) => p.includes('page 2.csv')));
+    assert.equal(fs.existsSync(outputDir), false, 'output hong khong duoc publish');
   } finally {
     tmp.cleanup();
   }

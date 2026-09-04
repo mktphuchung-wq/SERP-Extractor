@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeText, normalizeList, dedupeKey, toRegExp, matchesAny, normalizeMarkdownBlock,
+  normalizeAiMarkdown,
 } from '../../src/core/text.mjs';
 
 test('normalizeText: trim, collapse va bo zero-width', () => {
@@ -49,4 +50,9 @@ test('matchesAny: kiem tra nhieu pattern', () => {
 
 test('normalizeMarkdownBlock: gioi han toi da mot dong trong', () => {
   assert.equal(normalizeMarkdownBlock('a\n\n\n\nb   \n'), 'a\n\nb');
+});
+
+test('normalizeAiMarkdown: ha H1/H2 nhung khong sua fenced code', () => {
+  const input = '# Title\n## Section\n```md\n## code sample\n```';
+  assert.equal(normalizeAiMarkdown(input), '### Title\n### Section\n```md\n## code sample\n```');
 });

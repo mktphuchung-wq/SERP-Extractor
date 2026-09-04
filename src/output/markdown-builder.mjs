@@ -3,7 +3,7 @@
  * Bon H2 bat buoc, dung thu tu, khong them heading nao khac o che do mac dinh.
  * Khong ghi placeholder "N/A" - thay bang canh bao blockquote ro rang.
  */
-import { normalizeList, normalizeMarkdownBlock } from '../core/text.mjs';
+import { normalizeList, normalizeAiMarkdown } from '../core/text.mjs';
 
 export const REQUIRED_HEADINGS = [
   '## AI Mode',
@@ -26,7 +26,7 @@ export const NOTES = {
 export function buildMarkdown(data) {
   const sections = [];
 
-  sections.push(section('## AI Mode', normalizeMarkdownBlock(data.ai?.markdown) || NOTES.ai));
+  sections.push(section('## AI Mode', normalizeAiMarkdown(data.ai?.markdown) || NOTES.ai));
 
   const ideas = normalizeList(data.keywordIdeas ?? []);
   sections.push(section('## Keywords Ideas', ideas.length ? bulletList(ideas) : NOTES.keywordIdeas));

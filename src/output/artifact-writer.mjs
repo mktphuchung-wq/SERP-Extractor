@@ -50,29 +50,41 @@ export function writeStagingArtifacts(args) {
  * @returns {string[]} duong dan file cuoi cung
  */
 export function moveToOutput(args) {
-  fs.mkdirSync(args.outputDir, { recursive: true });
+  const parent = path.dirname(args.outputDir);
+  const publishDir = path.join(parent, `.${path.basename(args.outputDir)}.publishing-${process.pid}-${Date.now()}`);
+  const rollbackDir = `${args.outputDir}.rollback-${process.pid}-${Date.now()}`;
+  fs.mkdirSync(parent, { recursive: true });
 
-  if (args.overwrite && args.backupDir) backupExisting(args.outputDir, args.backupDir);
-
-  const finalPaths = [];
-  for (const file of args.files) {
-    const target = path.join(args.outputDir, path.basename(file));
-    if (fs.existsSync(target)) {
-      if (!args.overwrite) {
-        throw new AppError('OUTPUT_WRITE_FAILED', `File dich da ton tai: ${target}`);
-      }
-      fs.rmSync(target, { force: true });
-    }
-    try {
-      fs.renameSync(file, target);
-    } catch {
-      // rename giua hai o dia khac nhau -> copy roi xoa
-      fs.copyFileSync(file, target);
-      fs.rmSync(file, { force: true });
-    }
-    finalPaths.push(target);
+  if (fs.existsSync(args.outputDir) && !args.overwrite) {
+    throw new AppError('OUTPUT_WRITE_FAILED', `Thu muc dich da ton tai: ${args.outputDir}`);
   }
-  return finalPaths;
+
+  let oldMoved = false;
+  try {
+    fs.mkdirSync(publishDir);
+    for (const file of args.files) {
+      fs.copyFileSync(file, path.join(publishDir, path.basename(file)));
+    }
+
+    if (args.overwrite && fs.existsSync(args.outputDir)) {
+      if (args.backupDir) backupExisting(args.outputDir, args.backupDir);
+      fs.renameSync(args.outputDir, rollbackDir);
+      oldMoved = true;
+    }
+
+    fs.renameSync(publishDir, args.outputDir);
+    if (oldMoved) fs.rmSync(rollbackDir, { recursive: true, force: true });
+    for (const file of args.files) fs.rmSync(file, { force: true });
+    return args.files.map((file) => path.join(args.outputDir, path.basename(file)));
+  } catch (err) {
+    fs.rmSync(publishDir, { recursive: true, force: true });
+    if (oldMoved && !fs.existsSync(args.outputDir) && fs.existsSync(rollbackDir)) {
+      fs.renameSync(rollbackDir, args.outputDir);
+    }
+    throw err instanceof AppError
+      ? err
+      : new AppError('OUTPUT_WRITE_FAILED', `Khong publish duoc bo ket qua: ${err.message}`, { cause: err });
+  }
 }
 
 /** Sao luu thu muc cu truoc khi ghi de - khong bao gio xoa mu. */

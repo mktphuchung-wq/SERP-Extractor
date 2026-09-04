@@ -15,10 +15,9 @@
  *
  * Van khong bao gio gia lap click toa do vao icon extension (bat bien #3).
  */
-import { firstVisible, clickFirstVisible } from '../browser/locator.mjs';
-import { isUsable, describeCapability } from '../engine/capability.mjs';
+import { firstVisible } from '../browser/locator.mjs';
 import { runExtractor } from '../browser/page-eval.mjs';
-import { extractSuggestionDropdown, extractExtensionSuggestions } from '../extractors/suggestions-dom.mjs';
+import { extractSuggestionDropdown } from '../extractors/suggestions-dom.mjs';
 import { normalizeList } from '../core/text.mjs';
 import { WARNING_CODES } from '../core/errors.mjs';
 import { sleep } from '../core/retry.mjs';
@@ -29,7 +28,6 @@ import { NO_LOCK } from '../core/mutex.mjs';
  */
 export async function collectSuggestions(args) {
   const { page, config, selectors, logger, keyword } = args;
-  const mode = config.extractors.suggestion_source ?? 'extension_then_dom';
   const lock = args.lock ?? NO_LOCK;
   const warnings = [];
 
@@ -263,71 +261,6 @@ async function readOpenDropdown(args) {
 }
 
 /**
- * Buoc 2-3: mo popup extension (duong dan lay tu manifest) va doc danh sach.
- * Goi SAU khi dropdown da mo, dung nhu thao tac tay.
- */
-async function tryExtension(args) {
-  const { page, selectors, logger, extensions, config } = args;
-  const meta = extensions?.suggestions;
-  // Extension nay KHONG con la dependency bat buoc (dac ta Fast Path v1 - P0):
-  // luong tu dong dung DOM dropdown + endpoint autocomplete. Khong dung duoc thi
-  // bao INFO roi tra ve rong, KHONG phat EXTENSION_MISSING.
-  if (!isUsable(meta) || !meta.popupUrl) {
-    logger?.info(
-      'Bo qua "Google Search Suggestion Extractor" '
-      + `(${meta ? describeCapability(meta) : 'khong khai bao trong config'}); `
-      + 'dung DOM dropdown + endpoint autocomplete.',
-    );
-    return { items: [], source: 'none', warnings: [] };
-  }
-
-  const context = page.context();
-  const popup = await context.newPage();
-  try {
-    await popup.goto(meta.popupUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: config.extractors.extension_timeout_ms ?? 20000,
-    });
-    await sleep(1500);
-
-    const sel = selectors.extension_suggestions ?? {};
-    let result = await runExtractor(popup, extractExtensionSuggestions, {
-      options: { rowSelectors: cssSpecs(sel.rows), noise: sel.ui_noise ?? [], maxItems: 50 },
-    });
-
-    // Neu popup khong render san danh sach thi bam Copy roi doc clipboard
-    if (!result?.items?.length) {
-      const clicked = await clickFirstVisible(popup, sel.copy_all, {
-        logger, block: 'extension_suggestions.copy_all', perSpec: 2000,
-      });
-      if (clicked) {
-        await sleep(600);
-        const text = await popup.evaluate(async () => {
-          if (!navigator.clipboard || !navigator.clipboard.readText) return '';
-          return navigator.clipboard.readText();
-        }).catch(() => '');
-        const items = String(text || '').split(/\r?\n/);
-        result = { found: items.length > 0, items };
-      }
-    }
-
-    const items = normalizeList(result?.items ?? [], { noise: sel.ui_noise ?? [], minLength: 2 });
-    if (!items.length) {
-      logger?.warn(
-        'Popup extension khong tra ve suggestion nao. ' +
-        'Co the extension can tab Google la tab dang active - se dung DOM fallback.',
-        { code: WARNING_CODES.EXTENSION_POPUP_UNUSABLE },
-      );
-      return { items: [], source: 'none', warnings: [WARNING_CODES.EXTENSION_POPUP_UNUSABLE] };
-    }
-    return { items, source: 'google_suggestion_extension', warnings: [] };
-  } finally {
-    await popup.close().catch(() => {});
-    await page.bringToFront().catch(() => {});
-  }
-}
-
-/**
  * Parse phan hoi cua endpoint complete/search.
  * Tach rieng de test duoc khi Google doi dinh dang.
  * @param {string} raw
@@ -392,4 +325,4 @@ function cssSpecs(specs) {
   return (specs ?? []).filter((s) => s && s.type === 'css' && s.css).map((s) => s.css);
 }
 
-export const _internals = { readOpenDropdown, tryExtension };
+export const _internals = { readOpenDropdown };

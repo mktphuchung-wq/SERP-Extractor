@@ -69,3 +69,13 @@ test('markdown: ket thuc bang xuong dong va giu xuong dong cua AI', () => {
   assert.ok(md.endsWith('\n'));
   assert.ok(md.includes('Para 1.\n\nPara 2.'));
 });
+
+test('markdown: heading H1/H2 cua AI duoc ha xuong H3', () => {
+  const md = buildMarkdown({
+    ai: { markdown: '# AI title\n\n## Major Symbols\n\nBody' },
+    keywordIdeas: ['k'], paa: [{ question: 'q?' }], suggestions: ['s'],
+  });
+  assert.deepEqual(headingsOf(md), REQUIRED_HEADINGS);
+  assert.ok(md.includes('### AI title'));
+  assert.ok(md.includes('### Major Symbols'));
+});

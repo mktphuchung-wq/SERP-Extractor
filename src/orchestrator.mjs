@@ -539,14 +539,6 @@ async function stepWriteAndValidate(state, options) {
     csvPage2: state.csvPage2 ?? '',
   });
 
-  const backupDir = path.join(config.output.logs_root, state.runId, 'output-backup');
-  const files = moveToOutput({
-    files: [staged.md, staged.csv1, staged.csv2],
-    outputDir: state.outputDir,
-    overwrite: Boolean(options.overwrite),
-    backupDir,
-  });
-
   // Cua thoat cho truong hop Google that su khong tra ve ket qua nao: cho phep
   // CSV rong di qua quality gate thay vi lam hong ca run.
   //
@@ -571,8 +563,9 @@ async function stepWriteAndValidate(state, options) {
     && state.warnings.includes(WARNING_CODES.SERP_EMPTY_PAGE)
     && !contradictoryEmptyPage1;
 
+  // Quality gate chay tren staging. Output cu chua bi dong toi neu du lieu moi hong.
   const validation = validateRun({
-    dir: state.outputDir,
+    dir: state.stagingDir,
     base: state.base,
     prompt: state.prompt,
     allowEmptyCsv,
@@ -586,6 +579,14 @@ async function stepWriteAndValidate(state, options) {
       { details: { problems: validation.problems } },
     );
   }
+
+  const backupDir = path.join(config.output.logs_root, state.runId, 'output-backup');
+  const files = moveToOutput({
+    files: [staged.md, staged.csv1, staged.csv2],
+    outputDir: state.outputDir,
+    overwrite: Boolean(options.overwrite),
+    backupDir,
+  });
 
   const warnings = dedupeWarnings([...state.warnings, ...logger.warnings.map((w) => w.code)]);
   const strictSelectors = config.logging?.strict_selectors === true;

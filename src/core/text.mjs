@@ -95,6 +95,22 @@ export function normalizeMarkdownBlock(input) {
     .trim();
 }
 
+/** Giu cau truc AI, nhung danh rieng H2 cho bon section output bat buoc. */
+export function normalizeAiMarkdown(input) {
+  const lines = normalizeMarkdownBlock(input).split('\n');
+  let fence = null;
+  return lines.map((line) => {
+    const marker = /^\s*(```+|~~~+)/.exec(line)?.[1];
+    if (marker) {
+      if (!fence) fence = marker[0];
+      else if (marker[0] === fence) fence = null;
+      return line;
+    }
+    if (fence) return line;
+    return line.replace(/^(\s{0,3})#{1,2}(\s+)/, '$1###$2');
+  }).join('\n').trim();
+}
+
 /** Escape ky tu dac biet cho Markdown link text. */
 export function escapeMarkdown(text) {
   return String(text ?? '').replace(/([\\`*_[\]])/g, '\\$1');

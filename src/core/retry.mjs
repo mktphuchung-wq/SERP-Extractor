@@ -6,18 +6,12 @@ import { AppError, ManualActionRequired } from './errors.mjs';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const NON_RETRYABLE = new Set([
-  'MANUAL_CAPTCHA_REQUIRED',
-  'MANUAL_LOGIN_REQUIRED',
-  'CHROME_NOT_FOUND',
-  'INVALID_INPUT',
-  'INVALID_CONFIG',
-  'OUTPUT_CONFLICT',
-]);
-
 export function isRetryable(error) {
   if (error instanceof ManualActionRequired) return false;
-  if (error instanceof AppError) return !NON_RETRYABLE.has(error.code);
+  // AppError phai tu khai bao transient. Mac dinh retry moi AppError co the
+  // lap lai thao tac UI co side effect (submit/copy) hoac cho vo ich.
+  if (error instanceof AppError) return error.retryable === true;
+  // Loi he thong/Playwright khong duoc phan loai van co the la transient.
   return true;
 }
 

@@ -88,16 +88,18 @@ Từ đó về sau: double-click **`RUN.bat`** (hoặc lối tắt *SERP Extract
 | Google Chrome | **Không cần cài** — installer tải Chrome for Testing vào `runtime\chrome\` |
 | Tài khoản Ahrefs | Chỉ cần nếu muốn có Keywords Ideas |
 
-### Ba extension đi kèm sẵn
+### Extension và nguồn dữ liệu
 
-Ba extension nằm sẵn trong `vendor/extensions/` và được nạp bằng `--load-extension` mỗi lần khởi động
-Chrome. **Không phải cài từ Chrome Web Store trên máy nào cả.**
+Bundle cũ vẫn nằm trong `vendor/extensions/` để tương thích với máy đã cài, nhưng workflow production chỉ phụ thuộc **Ahrefs SEO Toolbar** khi cần Keywords Ideas.
 
-| Extension | Phiên bản đóng gói | Vai trò |
-| --- | --- | --- |
-| Ahrefs SEO Toolbar | 3.2.10 | Keywords Ideas, People also ask, chọn thị trường US |
-| SEO SERP Extraction Tool | 2 | Trích xuất organic SERP và export CSV |
-| Google Search Suggestion Extractor | 1.0 | Lấy Google Search Suggestions |
+| Thành phần | Vai trò trong workflow hiện tại |
+| --- | --- |
+| Ahrefs SEO Toolbar | Keywords Ideas, People Also Asked và thị trường US |
+| Native Google DOM extractor | Organic SERP Page 1 và Page 2, schema CSV canonical |
+| Google Suggestions DOM + endpoint | Search Suggestions, không mở popup extension |
+| SERP Extractor Bridge | Kết nối tool với Chrome đang mở khi dùng engine `bridge` |
+
+`SEO SERP Extraction Tool` và `Google Search Suggestion Extractor` không còn được gọi trong workflow tự động; thiếu hai extension này không ảnh hưởng SERP CSV hoặc Suggestions.
 
 Hai chi tiết kỹ thuật quan trọng đằng sau:
 
@@ -442,11 +444,11 @@ Quy tắc:
 
 Đây là phần dễ ra dữ liệu sai nhất, nên tool làm đúng theo thao tác tay:
 
-1. Đưa con trỏ vào ô tìm kiếm → dropdown gợi ý hiện ra.
-2. **Giữ dropdown đang mở**, rồi mới mở extension *Google Search Suggestion Extractor* và bấm Copy.
-3. Nếu extension không dùng được → đọc thẳng dropdown đang mở (DOM fallback).
+1. Đưa con trỏ vào ô tìm kiếm để dropdown gợi ý hiện ra.
+2. Đọc trực tiếp dropdown bằng DOM.
+3. Dùng endpoint autocomplete của Google để bổ sung và đối chiếu các dòng có thể bị nhận nhầm là lịch sử cá nhân.
 
-Thứ tự này quan trọng: nếu mở extension khi dropdown chưa hiện, extension không có gì để đọc.
+Workflow không mở popup extension Suggestions vì popup dạng tab không xác định đáng tin cậy tab Google đang active.
 
 **Lọc gợi ý cá nhân.** Khi bạn đã đăng nhập Google, dropdown trộn lẫn hai loại:
 
@@ -464,8 +466,7 @@ Muốn giữ cả lịch sử cá nhân: đặt `extractors.exclude_personalized
 
 ### Nội dung file CSV
 
-- Nếu extension export thành công: giữ nguyên schema gốc của extension.
-- Nếu dùng native fallback: schema canonical
+Tool luôn dùng native Google DOM extractor và schema CSV canonical:
 
   ```csv
   position,title,url,displayed_url,description,result_type,source_page,captured_at
@@ -558,8 +559,6 @@ Bước đầu tiên luôn là chạy **`DIAGNOSE.bat`**.
 | `AI_RESPONSE_TIMEOUT` | Câu trả lời AI sinh quá chậm | Tăng `ai.response_timeout_ms` |
 | `SUGGESTIONS_PERSONALIZED` (warning) | Dropdown có gợi ý lấy từ lịch sử tìm kiếm của tài khoản | Không phải lỗi — tool đã loại chúng ra. Muốn dữ liệu sạch hơn: dùng tài khoản khác hoặc xóa lịch sử tìm kiếm của profile automation |
 | `SUGGESTIONS_PERSONALIZED_ONLY` (warning) | Dropdown **chỉ có** lịch sử cá nhân, không có gợi ý thật | Section `## Search Suggestion` sẽ ghi cảnh báo thay vì dữ liệu sai. Thường xảy ra khi từ khóa đã được tìm nhiều lần trên chính profile này |
-| `EXTENSION_POPUP_UNUSABLE` | Popup của extension không đọc được khi mở dưới dạng tab | Bình thường — tool tự chuyển sang DOM fallback. Nếu xuất hiện thường xuyên, xem mục [Giới hạn đã biết](#9-giới-hạn-đã-biết) |
-| `DOWNLOAD_TIMEOUT` | Extension SERP không xuất được CSV | Tool tự chuyển sang native extractor. CSV vẫn được tạo với schema canonical |
 | `SERP_PAGE_DUPLICATE` | Điều hướng `start=10` không có tác dụng | Tool tự thử lại một lần rồi dừng an toàn, không ghi dữ liệu sai. Thường do Google trả cùng một trang khi bị giới hạn |
 | `SERP_MORE_RESULTS_THAN_EXPECTED` (warning) | Google bỏ qua `num=10` và trả về nhiều hơn 10 kết quả ở Page 1 (rất hay gặp) | Không phải lỗi. Tool giữ nguyên toàn bộ kết quả Google thực sự hiển thị và đánh số Page 2 tiếp sau Page 1 để hai file không chồng lấn vị trí |
 | `OUTPUT_VALIDATION_FAILED` | Kết quả không qua quality gate | Xem `logs\<run_id>\run.log` để biết gate nào fail. Staging được giữ lại để debug |
@@ -608,10 +607,9 @@ ai:
 extractors:
   allow_keyword_ideas_fallback: false   # KHÔNG thay Keywords Ideas bằng nguồn khác
   paa_capture_mode: 'questions_only'    # hoặc 'questions_and_answers'
-  suggestion_source: 'extension_then_dom'
+  suggestion_source: 'dom_then_endpoint'
   exclude_personalized_suggestions: true   # bỏ gợi ý lấy từ lịch sử tìm kiếm cá nhân
-  serp_source: 'extension_then_dom'
-  normalize_serp_csv: false             # true -> ép CSV extension về schema canonical
+  serp_source: 'dom_only'               # native DOM, schema canonical ổn định
 
 output:
   on_conflict: 'timestamp'          # timestamp | fail | overwrite
@@ -681,7 +679,7 @@ Một số quyết định quan trọng:
 - **State machine thay vì script dài.** AI Mode chạy theo máy trạng thái
   `SearchLoaded → OverviewFound → Expanded → PromptBox → Submitted → CopyReady → Captured`
   (nhánh `Missing` khi Google không trả dữ liệu). Orchestrator cũng là một chuỗi step có retry riêng.
-- **Extension-first, DOM fallback bắt buộc** cho Suggestions, PAA và Organic SERP.
+- **Native-first:** Suggestions dùng DOM + endpoint; Organic SERP luôn dùng native DOM; Ahrefs chỉ dùng cho dữ liệu riêng của toolbar.
 - **Không click tọa độ** vào icon extension trên thanh công cụ Chrome. Tool đọc `manifest.json`
   để tìm `action.default_popup` (MV3) hoặc `browser_action.default_popup` (MV2) rồi mở trang đó.
 - **Extension đi kèm repo, không cài tay.** `discoverEffective()` ưu tiên bản đã cài trong profile, thiếu
@@ -756,26 +754,18 @@ Run đó phát hiện 3 lỗi thật, **đã sửa và đã có test hồi quy**
 
 ### Chưa kiểm chứng được (cần profile đã cài extension và đăng nhập)
 
-- Đường đi **có extension**: cả ba extension đều chưa được cài trong run thật ở trên, nên toàn bộ nhánh
-  extension-first mới chỉ được test bằng fixture, chưa chạy với extension thật.
 - DOM thật của widget Ahrefs SEO Toolbar, gồm cả khả năng đọc/đổi country. Nếu widget dùng shadow DOM đóng,
   tool sẽ tự chuyển sang đường clipboard (nút `Copy`).
 - Selector của AI Overview/AI Mode còn có thể đổi tiếp. Run thật cho thấy selector chính đã lệch và phải
   dùng fallback — hãy chạy `SMOKE_TEST.bat` định kỳ và cập nhật `config/selectors.yaml` khi thấy
   `SELECTOR_DRIFT`.
-- Việc **kích hoạt SEO SERP Extraction Tool mà không click icon trên toolbar**. Tool mở trang popup lấy từ
-  manifest; nếu extension đó chỉ hoạt động khi popup gắn với tab Google đang active, đường này sẽ thất bại
-  và tool chuyển sang native SERP extractor (đường này đã được test đầy đủ).
-- Việc bắt file CSV do extension tải về khi Playwright gắn qua CDP. Tool dùng **hai đường song song**:
-  sự kiện `download` của Playwright (đã test được với Chrome thật) và theo dõi thư mục `Downloads`.
 - Hành vi thật của Google khi gặp CAPTCHA / yêu cầu đăng nhập / trang consent. Run thật ở trên không gặp
   CAPTCHA nên cơ chế pause–resume mới chỉ kiểm chứng được ở mức logic.
 - Tiêu chí nghiệm thu "chạy thành công tối thiểu 8/10 keyword test" (mục 16.15 của đặc tả) mới chạy được 1/10.
 
 **Giới hạn thiết kế của MVP:**
 
-- Mỗi lần chạy **một từ khóa**. Batch keyword nằm ở roadmap V1.1 — chạy song song trên cùng profile dễ lấy
-  nhầm dữ liệu giữa các từ khóa.
+- Hỗ trợ nhiều từ khóa ngăn cách bằng `;`, nhưng luôn chạy tuần tự trên cùng profile để tránh lấy nhầm dữ liệu.
 - Cố định 2 trang SERP. Đặt `search.pages` khác 2 sẽ bị ghi cảnh báo và vẫn chạy 2 trang, vì output bắt buộc
   đúng 3 file.
 - Google không còn tôn trọng `num=10`, nên số dòng Page 1 có thể nhiều hơn 10. Tool giữ nguyên toàn bộ

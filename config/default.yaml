@@ -112,12 +112,13 @@ extractors:
   keyword_ideas_source: 'ahrefs'
   allow_keyword_ideas_fallback: false
   paa_capture_mode: 'questions_only'     # questions_only | questions_and_answers
-  suggestion_source: 'extension_then_dom'
+  suggestion_source: 'dom_then_endpoint'
   # Loai goi y lay tu lich su tim kiem cua tai khoan (dong co nut Delete).
   # Do la du lieu ca nhan, khong phai Google Search Suggestion, va nguoc voi pws=0.
   exclude_personalized_suggestions: true
-  serp_source: 'extension_then_dom'
-  normalize_serp_csv: false
+  # Native DOM la nguon production duy nhat: nhanh hon, schema on dinh,
+  # khong phu thuoc popup/download cua extension.
+  serp_source: 'dom_only'
   # v2.0: bat mac dinh - dropdown DOM khong phai luc nao cung mo duoc,
   # endpoint nay la nguon du phong re va on dinh.
   allow_autocomplete_endpoint: true
