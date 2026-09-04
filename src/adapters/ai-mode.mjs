@@ -254,13 +254,20 @@ export async function collectAiAnswer(args) {
             const markdown = copied.changed ? normalizeMarkdownBlock(copied.text) : '';
             const echo = Boolean(markdown)
               && normalizeMarkdownBlock(markdown) === normalizeMarkdownBlock(prompt);
-            if (markdown && !echo && markdown.length >= minChars) {
+            // Run 20260904-161500-paniolo: response DOM moi dai 3.339 ky tu nhung
+            // mot control Copy toan trang da ghi lai dung 4 dong PAA (116 ky tu).
+            // Clipboard "co doi" khong du chung minh da bam dung nut. Khi da doc
+            // duoc response DOM, noi dung copy phai thuc su khop cay response do.
+            const matchesResponse = clipboardMatchesResponse(markdown, ctx.responseText);
+            if (markdown && !echo && markdown.length >= minChars && matchesResponse) {
               logger?.info(`Da doc ${markdown.length} ky tu AI Overview tu clipboard.`);
               return { to: 'Captured', markdown, source: 'google_ai_overview_clipboard' };
             }
             logger?.info(
               copied.changed
-                ? 'Noi dung clipboard khong phai cau tra loi; chuyen sang doc thang response DOM.'
+                ? matchesResponse
+                  ? 'Noi dung clipboard khong phai cau tra loi; chuyen sang doc thang response DOM.'
+                  : 'Noi dung clipboard khong khop response AI moi; bo qua va doc thang response DOM.'
                 : 'Nut Copy khong ghi duoc vao clipboard; chuyen sang doc thang response DOM.',
             );
           }
@@ -568,6 +575,36 @@ async function waitForAnswer({ page, promptSel, aiScope, aiCfg, baseline, logger
     // eslint-disable-next-line no-await-in-loop
     await sleep(pollMs);
   }
+}
+
+/**
+ * Clipboard co phai noi dung cua response moi hay khong?
+ *
+ * Copy co the giu Markdown trong khi DOM la plain text, nen so sanh theo cac tu
+ * dai du dac trung thay vi doi chuoi bang nhau. Neu DOM khong doc duoc, caller
+ * van co the dung clipboard theo duong COPY_ONLY.
+ */
+export function clipboardMatchesResponse(clipboard, responseText) {
+  const copied = normalizeForEvidence(clipboard);
+  const response = normalizeForEvidence(responseText);
+  if (!response) return true;
+  if (!copied) return false;
+  if (response.includes(copied) || copied.includes(response)) return true;
+
+  const tokens = copied.split(' ').filter((token) => token.length >= 4);
+  if (!tokens.length) return false;
+  const unique = Array.from(new Set(tokens));
+  const hits = unique.filter((token) => response.includes(token)).length;
+  return hits >= Math.min(8, unique.length) && hits / unique.length >= 0.6;
+}
+
+function normalizeForEvidence(value) {
+  return String(value ?? '')
+    .toLocaleLowerCase('en-US')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 /**

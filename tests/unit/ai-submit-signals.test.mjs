@@ -13,7 +13,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { _internals } from '../../src/adapters/ai-mode.mjs';
+import { clipboardMatchesResponse, _internals } from '../../src/adapters/ai-mode.mjs';
 
 const { sendPrompt, verifySubmitted, findResponseLocator } = _internals;
 
@@ -74,6 +74,32 @@ test('khong fallback ve cau tra loi dau tien khi prompt chua tao response moi', 
   };
 
   assert.equal(await findResponseLocator(page, PROMPT_SEL, 1), null);
+});
+
+test('hoi quy Paniolo: clipboard PAA khong khop response AI moi thi bi tu choi', () => {
+  const paaClipboard = [
+    'What does paniolo mean?',
+    'What does paniolo mean in Spanish?',
+    'Who owns Paniolos Hawaii?',
+    'What do Hawaiians call cowboys?',
+  ].join('\n');
+  const aiResponse = [
+    'Paniolo refers to Hawaiian cowboys, a tradition that began in the nineteenth century.',
+    'Mexican vaqueros taught Native Hawaiians cattle-handling and riding skills.',
+    'Today paniolo culture remains an important part of Hawaiian history and identity.',
+  ].join(' ');
+
+  assert.equal(clipboardMatchesResponse(paaClipboard, aiResponse), false);
+});
+
+test('clipboard Markdown cua dung response duoc chap nhan du khac formatting DOM', () => {
+  const copied = '### Paniolo history\n\nPaniolo are **Hawaiian cowboys** trained by Mexican vaqueros.';
+  const response = 'Paniolo history Paniolo are Hawaiian cowboys trained by Mexican vaqueros.';
+  assert.equal(clipboardMatchesResponse(copied, response), true);
+});
+
+test('khong co response DOM thi van cho phep duong clipboard-only', () => {
+  assert.equal(clipboardMatchesResponse('A sufficiently long copied answer.', ''), true);
 });
 
 test('marker aria-busy NGOAI khoi AI + o nhap trong = CHUA du de ket luan da gui', async () => {
