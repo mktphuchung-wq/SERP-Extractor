@@ -1186,16 +1186,22 @@ async function countResponseBlocks(page, promptSel) {
   return total;
 }
 
-/** Locator cua cau tra loi MOI (sinh ra sau prompt). */
+/**
+ * Locator cua cau tra loi MOI (sinh ra sau prompt).
+ *
+ * Tuyet doi khong fallback ve block cu khi so response chua tang. Tren AI Mode,
+ * response dau tien (AI Overview) da co san truoc luc gui prompt; tra ve `count - 1`
+ * trong luc cho da lam adapter coi block dau tien la on dinh va copy/xuat no truoc
+ * khi cay response thu hai kip duoc tao.
+ */
 async function findResponseLocator(page, promptSel, beforeCount) {
   for (const spec of promptSel.response_container ?? []) {
     if (spec.type !== 'css') continue;
     try {
       const all = page.locator(spec.css);
       const count = await all.count();
-      if (count === 0) continue;
-      const index = count > beforeCount ? beforeCount : count - 1;
-      return { locator: all.nth(index), spec };
+      if (count <= beforeCount) continue;
+      return { locator: all.nth(beforeCount), spec };
     } catch { /* thu spec ke tiep */ }
   }
   return null;

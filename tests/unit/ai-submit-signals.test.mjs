@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 
 import { _internals } from '../../src/adapters/ai-mode.mjs';
 
-const { sendPrompt, verifySubmitted } = _internals;
+const { sendPrompt, verifySubmitted, findResponseLocator } = _internals;
 
 const PROMPT_SEL = {
   copy_button: [{ type: 'css', css: 'button[aria-label="Copy text"]' }],
@@ -46,6 +46,35 @@ function fakePage(counts, opts = {}) {
 const BASELINE = { copy: [0], response: 0, loading: 1, url: 'https://www.google.com/search?q=x' };
 const clearedInput = { async inputValue() { return ''; } };
 const filledInput = { async inputValue() { return 'prompt van con day'; } };
+
+test('chi chon cay response thu hai duoc tao sau khi gui prompt', async () => {
+  const nodes = [{ id: 'answer-dau-tien' }, { id: 'answer-sau-prompt' }];
+  const page = {
+    locator(css) {
+      assert.equal(css, '[data-rp-response]');
+      return {
+        async count() { return nodes.length; },
+        nth(index) { return nodes[index]; },
+      };
+    },
+  };
+
+  const second = await findResponseLocator(page, PROMPT_SEL, 1);
+  assert.equal(second.locator.id, 'answer-sau-prompt');
+});
+
+test('khong fallback ve cau tra loi dau tien khi prompt chua tao response moi', async () => {
+  const page = {
+    locator() {
+      return {
+        async count() { return 1; },
+        nth() { throw new Error('khong duoc chon response cu'); },
+      };
+    },
+  };
+
+  assert.equal(await findResponseLocator(page, PROMPT_SEL, 1), null);
+});
 
 test('marker aria-busy NGOAI khoi AI + o nhap trong = CHUA du de ket luan da gui', async () => {
   // Toan trang co 3 marker busy (thanh Ahrefs, carousel...), nhung trong khoi AI
